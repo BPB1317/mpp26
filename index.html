@@ -142,13 +142,27 @@ select.inp{cursor:pointer}
 .tp-match{font-size:.75rem;color:var(--muted);font-weight:500;margin-bottom:4px}
 .tp-pick{font-size:.9rem;font-weight:700;color:var(--text);margin-bottom:6px}
 .tp-ev{font-size:.8rem;font-weight:600}
+/* RISK BAR */
+.risk-bar{background:#fff;border-radius:var(--r);box-shadow:var(--sh);padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.risk-bar>span.rlbl{font-size:.82rem;color:var(--muted);font-weight:600;white-space:nowrap}
+.risk-btns{display:flex;gap:6px}
+.risk-btn{padding:5px 13px;border-radius:20px;border:1.5px solid var(--border);background:transparent;cursor:pointer;font-size:.8rem;font-weight:600;color:var(--muted);transition:all .15s;white-space:nowrap}
+.risk-btn:hover{border-color:var(--g);color:var(--g)}
+.risk-btn.lv1.on{background:#EFF6FF;border-color:#3B82F6;color:#1D4ED8}
+.risk-btn.lv2.on{background:#D1FAE5;border-color:var(--ok);color:#065F46}
+.risk-btn.lv3.on{background:#FEF3C7;border-color:#D97706;color:#92400E}
+.risk-formula{font-size:.75rem;color:var(--muted);font-style:italic;margin-left:auto;text-align:right;max-width:380px;line-height:1.4}
+.score-badge{display:inline-block;padding:3px 10px;background:linear-gradient(135deg,var(--g-dark),var(--g));color:#fff;border-radius:20px;font-size:.8rem;font-weight:700;letter-spacing:.2px}
+.main-row{cursor:pointer}.main-row:hover td{background:#F5F7FF!important}
+.det-row td{background:#FAFAFA}
+.det-best td{background:#F0FDF4!important}
 
 /* UTILS */
 .hidden{display:none!important}
 .d-flex{display:flex}.ai-c{align-items:center}.gap-2{gap:8px}
 @media(max-width:700px){
   .orow{grid-template-columns:1fr 1fr 1fr;gap:6px}
-  .tbl th:nth-child(4),.tbl td:nth-child(4),.tbl th:nth-child(5),.tbl td:nth-child(5){display:none}
+  .col-phase,.col-ev{display:none}
   .hdr-t p{display:none}
 }
 </style>
@@ -180,6 +194,18 @@ select.inp{cursor:pointer}
 
     <div id="top-picks-section"></div>
 
+    <div id="last-updated-bar"></div>
+
+    <div class="risk-bar">
+      <span class="rlbl">Niveau de risque :</span>
+      <div class="risk-btns">
+        <button class="risk-btn lv1" data-level="1">🛡 Sûr</button>
+        <button class="risk-btn lv2 on" data-level="2">⚖ Standard</button>
+        <button class="risk-btn lv3" data-level="3">🔥 Risqué</button>
+      </div>
+      <span id="risk-desc" class="risk-formula">argmax( EV − EV_field ) — maximise l'espérance de gain vs le field sur la durée</span>
+    </div>
+
     <div class="tcard">
       <div class="tcard-head">📋 Tableau des recommandations</div>
       <div id="public-table"></div>
@@ -195,6 +221,7 @@ select.inp{cursor:pointer}
       <button class="btn btn-ghost" id="btn-export">📥 Exporter JSON</button>
       <button class="btn btn-ghost" id="btn-import">📤 Importer JSON</button>
       <button class="btn btn-ghost" id="btn-chg-pwd">🔑 Mot de passe</button>
+      <button class="btn btn-primary" id="btn-load-cal">📅 Charger calendrier CDM 2026</button>
     </div>
     <div class="amlist" id="admin-list"></div>
   </div>
@@ -242,7 +269,7 @@ select.inp{cursor:pointer}
             <option>Groupe A</option><option>Groupe B</option><option>Groupe C</option><option>Groupe D</option>
             <option>Groupe E</option><option>Groupe F</option><option>Groupe G</option><option>Groupe H</option>
             <option>Groupe I</option><option>Groupe J</option><option>Groupe K</option><option>Groupe L</option>
-            <option>Huitièmes</option><option>Quarts de finale</option><option>Demi-finales</option>
+            <option>Seizièmes</option><option>Huitièmes</option><option>Quarts de finale</option><option>Demi-finales</option>
             <option>Finale</option><option>Match 3e place</option>
           </select>
         </div>
@@ -290,12 +317,144 @@ const PHASE_COLORS = {
   'Groupe A':'#6366F1','Groupe B':'#8B5CF6','Groupe C':'#EC4899','Groupe D':'#F59E0B',
   'Groupe E':'#10B981','Groupe F':'#3B82F6','Groupe G':'#EF4444','Groupe H':'#14B8A6',
   'Groupe I':'#F97316','Groupe J':'#84CC16','Groupe K':'#06B6D4','Groupe L':'#A855F7',
-  'Huitièmes':'#1D4ED8','Quarts de finale':'#DC2626','Demi-finales':'#7C3AED',
+  'Seizièmes':'#0369A1','Huitièmes':'#1D4ED8','Quarts de finale':'#DC2626','Demi-finales':'#7C3AED',
   'Finale':'#D97706','Match 3e place':'#6B7280'
 };
 
+// ─── CALENDAR PRESET ────────────────────────────────────────
+// Les heures sont celles du fichier source (heure locale des stades / heure du diffuseur)
+const PC = [
+  // ── GROUPE A : Mexique · Afrique du Sud · Corée du Sud · Rép. tchèque ──
+  {tA:'Mexique',         tB:'Afrique du Sud', date:'2026-06-11',time:'21:00',phase:'Groupe A',type:'group'},
+  {tA:'Corée du Sud',   tB:'Rép. tchèque',   date:'2026-06-12',time:'04:00',phase:'Groupe A',type:'group'},
+  {tA:'Rép. tchèque',   tB:'Afrique du Sud', date:'2026-06-18',time:'21:00',phase:'Groupe A',type:'group'},
+  {tA:'Mexique',         tB:'Corée du Sud',   date:'2026-06-19',time:'03:00',phase:'Groupe A',type:'group'},
+  {tA:'Afrique du Sud', tB:'Corée du Sud',   date:'2026-06-25',time:'03:00',phase:'Groupe A',type:'group'},
+  {tA:'Rép. tchèque',   tB:'Mexique',         date:'2026-06-25',time:'03:00',phase:'Groupe A',type:'group'},
+  // ── GROUPE B : Canada · Bosnie-Herzégovine · Qatar · Suisse ──
+  {tA:'Canada',             tB:'Bosnie-Herzégovine',date:'2026-06-12',time:'21:00',phase:'Groupe B',type:'group'},
+  {tA:'Qatar',              tB:'Suisse',             date:'2026-06-13',time:'21:00',phase:'Groupe B',type:'group'},
+  {tA:'Suisse',             tB:'Bosnie-Herzégovine',date:'2026-06-18',time:'21:00',phase:'Groupe B',type:'group'},
+  {tA:'Canada',             tB:'Qatar',              date:'2026-06-19',time:'00:00',phase:'Groupe B',type:'group'},
+  {tA:'Suisse',             tB:'Canada',             date:'2026-06-24',time:'21:00',phase:'Groupe B',type:'group'},
+  {tA:'Bosnie-Herzégovine',tB:'Qatar',              date:'2026-06-24',time:'21:00',phase:'Groupe B',type:'group'},
+  // ── GROUPE C : Brésil · Maroc · Haïti · Écosse ──
+  {tA:'Brésil', tB:'Maroc',  date:'2026-06-14',time:'00:00',phase:'Groupe C',type:'group'},
+  {tA:'Haïti',  tB:'Écosse', date:'2026-06-14',time:'03:00',phase:'Groupe C',type:'group'},
+  {tA:'Écosse', tB:'Maroc',  date:'2026-06-20',time:'00:00',phase:'Groupe C',type:'group'},
+  {tA:'Brésil', tB:'Haïti',  date:'2026-06-20',time:'02:30',phase:'Groupe C',type:'group'},
+  {tA:'Maroc',  tB:'Haïti',  date:'2026-06-25',time:'00:00',phase:'Groupe C',type:'group'},
+  {tA:'Écosse', tB:'Brésil', date:'2026-06-25',time:'00:00',phase:'Groupe C',type:'group'},
+  // ── GROUPE D : États-Unis · Paraguay · Australie · Turquie ──
+  {tA:'États-Unis',tB:'Paraguay', date:'2026-06-13',time:'03:00',phase:'Groupe D',type:'group'},
+  {tA:'Australie', tB:'Turquie',  date:'2026-06-14',time:'06:00',phase:'Groupe D',type:'group'},
+  {tA:'États-Unis',tB:'Australie',date:'2026-06-19',time:'21:00',phase:'Groupe D',type:'group'},
+  {tA:'Turquie',   tB:'Paraguay', date:'2026-06-20',time:'05:00',phase:'Groupe D',type:'group'},
+  {tA:'Paraguay',  tB:'Australie',date:'2026-06-26',time:'04:00',phase:'Groupe D',type:'group'},
+  {tA:'Turquie',   tB:'États-Unis',date:'2026-06-26',time:'04:00',phase:'Groupe D',type:'group'},
+  // ── GROUPE E : Allemagne · Curaçao · Côte d'Ivoire · Équateur ──
+  {tA:'Allemagne',      tB:'Curaçao',       date:'2026-06-14',time:'19:00',phase:'Groupe E',type:'group'},
+  {tA:"Côte d'Ivoire",  tB:'Équateur',      date:'2026-06-15',time:'01:00',phase:'Groupe E',type:'group'},
+  {tA:'Allemagne',      tB:"Côte d'Ivoire", date:'2026-06-20',time:'22:00',phase:'Groupe E',type:'group'},
+  {tA:'Équateur',       tB:'Curaçao',       date:'2026-06-21',time:'02:00',phase:'Groupe E',type:'group'},
+  {tA:'Curaçao',        tB:"Côte d'Ivoire", date:'2026-06-25',time:'22:00',phase:'Groupe E',type:'group'},
+  {tA:'Équateur',       tB:'Allemagne',     date:'2026-06-25',time:'22:00',phase:'Groupe E',type:'group'},
+  // ── GROUPE F : Pays-Bas · Japon · Suède · Tunisie ──
+  {tA:'Pays-Bas',tB:'Japon',   date:'2026-06-14',time:'22:00',phase:'Groupe F',type:'group'},
+  {tA:'Suède',   tB:'Tunisie', date:'2026-06-15',time:'04:00',phase:'Groupe F',type:'group'},
+  {tA:'Pays-Bas',tB:'Suède',   date:'2026-06-20',time:'19:00',phase:'Groupe F',type:'group'},
+  {tA:'Tunisie', tB:'Japon',   date:'2026-06-21',time:'06:00',phase:'Groupe F',type:'group'},
+  {tA:'Tunisie', tB:'Pays-Bas',date:'2026-06-26',time:'01:00',phase:'Groupe F',type:'group'},
+  {tA:'Japon',   tB:'Suède',   date:'2026-06-26',time:'01:00',phase:'Groupe F',type:'group'},
+  // ── GROUPE G : Espagne · Cap-Vert · Arabie saoudite · Uruguay ──
+  {tA:'Espagne',         tB:'Cap-Vert',       date:'2026-06-15',time:'18:00',phase:'Groupe G',type:'group'},
+  {tA:'Arabie saoudite', tB:'Uruguay',        date:'2026-06-16',time:'00:00',phase:'Groupe G',type:'group'},
+  {tA:'Espagne',         tB:'Arabie saoudite',date:'2026-06-21',time:'18:00',phase:'Groupe G',type:'group'},
+  {tA:'Uruguay',         tB:'Cap-Vert',       date:'2026-06-22',time:'00:00',phase:'Groupe G',type:'group'},
+  {tA:'Cap-Vert',        tB:'Arabie saoudite',date:'2026-06-27',time:'02:00',phase:'Groupe G',type:'group'},
+  {tA:'Uruguay',         tB:'Espagne',        date:'2026-06-27',time:'02:00',phase:'Groupe G',type:'group'},
+  // ── GROUPE H : Belgique · Égypte · Iran · Nouvelle-Zélande ──
+  {tA:'Belgique',         tB:'Égypte',          date:'2026-06-15',time:'21:00',phase:'Groupe H',type:'group'},
+  {tA:'Iran',             tB:'Nouvelle-Zélande',date:'2026-06-16',time:'03:00',phase:'Groupe H',type:'group'},
+  {tA:'Belgique',         tB:'Iran',            date:'2026-06-21',time:'21:00',phase:'Groupe H',type:'group'},
+  {tA:'Nouvelle-Zélande', tB:'Égypte',          date:'2026-06-22',time:'03:00',phase:'Groupe H',type:'group'},
+  {tA:'Égypte',           tB:'Iran',            date:'2026-06-27',time:'05:00',phase:'Groupe H',type:'group'},
+  {tA:'Nouvelle-Zélande', tB:'Belgique',        date:'2026-06-27',time:'05:00',phase:'Groupe H',type:'group'},
+  // ── GROUPE I : France · Sénégal · Irak · Norvège ──
+  {tA:'France',  tB:'Sénégal',date:'2026-06-16',time:'21:00',phase:'Groupe I',type:'group'},
+  {tA:'Irak',    tB:'Norvège', date:'2026-06-17',time:'00:00',phase:'Groupe I',type:'group'},
+  {tA:'France',  tB:'Irak',   date:'2026-06-22',time:'23:00',phase:'Groupe I',type:'group'},
+  {tA:'Norvège', tB:'Sénégal',date:'2026-06-23',time:'02:00',phase:'Groupe I',type:'group'},
+  {tA:'Norvège', tB:'France', date:'2026-06-26',time:'21:00',phase:'Groupe I',type:'group'},
+  {tA:'Sénégal', tB:'Irak',   date:'2026-06-26',time:'21:00',phase:'Groupe I',type:'group'},
+  // ── GROUPE J : Argentine · Algérie · Autriche · Jordanie ──
+  {tA:'Argentine',tB:'Algérie', date:'2026-06-17',time:'03:00',phase:'Groupe J',type:'group'},
+  {tA:'Autriche', tB:'Jordanie',date:'2026-06-17',time:'06:00',phase:'Groupe J',type:'group'},
+  {tA:'Argentine',tB:'Autriche',date:'2026-06-22',time:'19:00',phase:'Groupe J',type:'group'},
+  {tA:'Jordanie', tB:'Algérie', date:'2026-06-23',time:'05:00',phase:'Groupe J',type:'group'},
+  {tA:'Algérie',  tB:'Autriche',date:'2026-06-28',time:'04:00',phase:'Groupe J',type:'group'},
+  {tA:'Jordanie', tB:'Argentine',date:'2026-06-28',time:'04:00',phase:'Groupe J',type:'group'},
+  // ── GROUPE K : Portugal · RD Congo · Ouzbékistan · Colombie ──
+  {tA:'Portugal',   tB:'RD Congo',    date:'2026-06-17',time:'19:00',phase:'Groupe K',type:'group'},
+  {tA:'Ouzbékistan',tB:'Colombie',    date:'2026-06-18',time:'04:00',phase:'Groupe K',type:'group'},
+  {tA:'Portugal',   tB:'Ouzbékistan', date:'2026-06-23',time:'19:00',phase:'Groupe K',type:'group'},
+  {tA:'Colombie',   tB:'RD Congo',    date:'2026-06-24',time:'04:00',phase:'Groupe K',type:'group'},
+  {tA:'Colombie',   tB:'Portugal',    date:'2026-06-28',time:'01:30',phase:'Groupe K',type:'group'},
+  {tA:'RD Congo',   tB:'Ouzbékistan', date:'2026-06-28',time:'01:30',phase:'Groupe K',type:'group'},
+  // ── GROUPE L : Angleterre · Croatie · Ghana · Panama ──
+  {tA:'Angleterre',tB:'Croatie',date:'2026-06-17',time:'22:00',phase:'Groupe L',type:'group'},
+  {tA:'Ghana',     tB:'Panama', date:'2026-06-18',time:'01:00',phase:'Groupe L',type:'group'},
+  {tA:'Angleterre',tB:'Ghana',  date:'2026-06-23',time:'22:00',phase:'Groupe L',type:'group'},
+  {tA:'Panama',    tB:'Croatie',date:'2026-06-24',time:'01:00',phase:'Groupe L',type:'group'},
+  {tA:'Croatie',   tB:'Ghana',  date:'2026-06-27',time:'23:00',phase:'Groupe L',type:'group'},
+  {tA:'Panama',    tB:'Angleterre',date:'2026-06-27',time:'23:00',phase:'Groupe L',type:'group'},
+  // ── SEIZIÈMES DE FINALE (équipes à déterminer) ──
+  {tA:'TBD',tB:'TBD',date:'2026-06-28',time:'21:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-06-29',time:'19:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-06-29',time:'22:30',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-06-30',time:'03:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-06-30',time:'19:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-06-30',time:'23:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-01',time:'03:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-01',time:'18:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-01',time:'22:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-02',time:'02:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-02',time:'21:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-03',time:'01:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-03',time:'05:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-03',time:'20:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-04',time:'00:00',phase:'Seizièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-04',time:'03:30',phase:'Seizièmes',type:'ko'},
+  // ── HUITIÈMES DE FINALE (équipes à déterminer) ──
+  {tA:'TBD',tB:'TBD',date:'2026-07-04',time:'19:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-04',time:'23:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-05',time:'22:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-06',time:'02:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-06',time:'21:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-07',time:'02:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-07',time:'18:00',phase:'Huitièmes',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-07',time:'22:00',phase:'Huitièmes',type:'ko'},
+  // ── QUARTS DE FINALE (équipes à déterminer) ──
+  {tA:'TBD',tB:'TBD',date:'2026-07-09',time:'22:00',phase:'Quarts de finale',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-10',time:'21:00',phase:'Quarts de finale',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-11',time:'23:00',phase:'Quarts de finale',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-12',time:'03:00',phase:'Quarts de finale',type:'ko'},
+  // ── DEMI-FINALES (équipes à déterminer) ──
+  {tA:'TBD',tB:'TBD',date:'2026-07-14',time:'21:00',phase:'Demi-finales',type:'ko'},
+  {tA:'TBD',tB:'TBD',date:'2026-07-15',time:'21:00',phase:'Demi-finales',type:'ko'},
+  // ── MATCH 3E PLACE ──
+  {tA:'TBD',tB:'TBD',date:'2026-07-18',time:'23:00',phase:'Match 3e place',type:'ko'},
+  // ── FINALE ──
+  {tA:'TBD',tB:'TBD',date:'2026-07-19',time:'21:00',phase:'Finale',type:'ko'},
+];
+
 // ─── STATE ───────────────────────────────────────────────────
-const S = { data: null, isAdmin: false };
+const S = { data: null, isAdmin: false, riskLevel: 2 };
+const RL_META = {
+  1: { label:'🛡 Sûr',     formula:'argmax( popularité )',          desc:'argmax( popularité ) — suit le field, variance minimale. Idéal quand vous êtes en tête.' },
+  2: { label:'⚖ Standard', formula:'argmax( EV − EV_field )',       desc:'argmax( EV − EV_field ) — maximise l\'espérance de gain vs le field sur la durée.' },
+  3: { label:'🔥 Risqué',  formula:'argmax( EV × (1 − pop) )',      desc:'argmax( EV × (1−pop) ) — maximise le bonus contrariant : points marqués quand vos adversaires ratent. Idéal pour un comeback.' },
+};
 
 // ─── DATA ────────────────────────────────────────────────────
 function defData() { return { version:1, adminPassword: DEF_PWD, matches:[] }; }
@@ -321,6 +480,7 @@ function loadAdminData() {
 }
 
 function save() {
+  if (S.isAdmin) S.data.lastUpdated = new Date().toISOString();
   try { localStorage.setItem(SK, JSON.stringify(S.data)); } catch(e) { toast('Erreur sauvegarde','err'); }
 }
 
@@ -347,17 +507,25 @@ function fieldEV(outcomes) {
   return valid.reduce((s,x) => s + (x.pop/total)*x.e, 0);
 }
 
+function rlScore(o, fev) {
+  const e = o._ev, pop = parseFloat(o.popularity)||0, rl = S.riskLevel;
+  if (e === null) return null;
+  if (rl === 1) return pop;
+  if (rl === 2) return fev !== null ? e - fev : e;
+  return e * Math.max(0, 1 - pop / 100);
+}
+
 function enrich(match) {
   const fev = fieldEV(match.outcomes);
   const outs = match.outcomes.map(o => {
     const e = ev(o.points, o.fairOdd);
     const r = (e !== null && fev !== null) ? e - fev : null;
-    return {...o, _ev:e, _rel:r};
+    const sc = rlScore({...o, _ev:e}, fev);
+    return {...o, _ev:e, _rel:r, _sc:sc};
   });
   let best = -1, bestScore = -Infinity;
   outs.forEach((o,i) => {
-    const sc = o._rel !== null ? o._rel : (o._ev !== null ? o._ev : -Infinity);
-    if (sc > bestScore) { bestScore=sc; best=i; }
+    if (o._sc !== null && o._sc > bestScore) { bestScore=o._sc; best=i; }
   });
   return {...match, outcomes:outs, _fev:fev, _best:best};
 }
@@ -377,25 +545,45 @@ function renderPublic() {
 
   // Top picks strip
   const tpSec = document.getElementById('top-picks-section');
-  const topPicks = matches.filter(m => m._best >= 0 && m.outcomes[m._best]._rel !== null)
-    .sort((a,b) => (b.outcomes[b._best]._rel||0) - (a.outcomes[a._best]._rel||0))
-    .slice(0,6);
+  const topPicks = matches.filter(m => m._best >= 0 && m.outcomes[m._best]._sc !== null)
+    .sort((a,b) => (b.outcomes[b._best]._sc||0) - (a.outcomes[a._best]._sc||0))
+    .slice(0, 6);
 
   if (topPicks.length) {
-    tpSec.innerHTML = '<div class="ptitle" style="margin-bottom:12px"><p style="font-weight:600;color:var(--g-dark)">Meilleurs picks du moment</p></div>' +
+    const rl = S.riskLevel;
+    const tpTitle = rl===1 ? 'Picks les plus populaires' : rl===3 ? 'Meilleurs picks contrarianistes' : 'Meilleurs picks du moment';
+    tpSec.innerHTML = `<div class="ptitle" style="margin-bottom:12px"><p style="font-weight:600;color:var(--g-dark)">${tpTitle}</p></div>` +
       '<div class="top-picks">' + topPicks.map(m => {
         const o = m.outcomes[m._best];
-        const cls = o._rel > 0.1 ? '' : o._rel < 0 ? 'neg' : 'neu';
+        const cls = o._rel !== null ? (o._rel > 0.05 ? '' : o._rel < 0 ? 'neg' : 'neu') : 'neu';
+        const scTxt = rl===1 ? `Pop. ${(parseFloat(o.popularity)||0).toFixed(0)}%`
+                    : rl===3 ? `Contrariant : ${fmtEV(o._sc)}`
+                    : `${fmtRel(o._rel)} pts vs field`;
+        const scColor = rl===1 ? 'var(--ok)' : rl===3 ? '#D97706' : (o._rel>0?'var(--ok)':o._rel<0?'var(--bad)':'var(--warn)');
         return `<div class="tp-card ${cls}">
           <div class="tp-match">${esc(m.teamA)} vs ${esc(m.teamB)} · ${esc(m.phase||'')}</div>
           <div class="tp-pick">→ ${esc(o.label||'')}</div>
-          <div class="tp-ev ${cls||'pos'}" style="color:${o._rel>0?'var(--ok)':o._rel<0?'var(--bad)':'var(--warn)'}">
-            ${fmtRel(o._rel)} pts vs field
-          </div>
+          <div class="tp-ev" style="color:${scColor}">${scTxt}</div>
         </div>`;
       }).join('') + '</div>';
   } else {
     tpSec.innerHTML = '';
+  }
+
+  // Last updated bar
+  const luBar = document.getElementById('last-updated-bar');
+  if (luBar) {
+    if (S.data.lastUpdated) {
+      const d = new Date(S.data.lastUpdated);
+      const fmt = d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})
+        + ' à ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      luBar.innerHTML = `<div style="text-align:right;margin-bottom:10px;font-size:.78rem;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;gap:6px">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block"></span>
+        Dernière mise à jour : <strong style="color:var(--text)">${fmt}</strong>
+      </div>`;
+    } else {
+      luBar.innerHTML = '';
+    }
   }
 
   // Main table
@@ -409,17 +597,43 @@ function renderPublic() {
     const best = m._best >= 0 ? m.outcomes[m._best] : null;
     const pc = PHASE_COLORS[m.phase]||'#6B7280';
     const dot = best?._rel > 0 ? 'pos' : best?._rel < 0 ? 'neg' : 'neu';
-    return `<tr>
+    const scoreHtml = m.pickscore
+      ? `<span class="score-badge">${esc(m.pickscore)}</span>`
+      : `<span style="color:var(--muted);font-size:.78rem">—</span>`;
+    const detailRows = m.outcomes.map((o, i) => {
+      const isBest = i === m._best;
+      const relCls = o._rel===null?'neu':o._rel>=0?'pos':'neg';
+      return `<tr class="${isBest?'det-best':''}">
+        <td style="padding:5px 12px;font-size:.82rem">${isBest?'✅ ':''}<strong style="font-weight:${isBest?700:500}">${esc(o.label||'')}</strong></td>
+        <td style="padding:5px 12px;font-size:.82rem;font-weight:700;color:#4338CA">${o._ev!==null?fmtEV(o._ev):'—'}</td>
+        <td style="padding:5px 12px"><span class="badge-ev ${relCls}" style="font-size:.74rem">${o._rel!==null?fmtRel(o._rel)+' pts':'—'}</span></td>
+      </tr>`;
+    }).join('');
+    return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
       <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''}</div></td>
-      <td><span class="phase-tag" style="background:${pc}22;color:${pc}">${esc(m.phase||'')}</span></td>
+      <td class="col-phase"><span class="phase-tag" style="background:${pc}22;color:${pc}">${esc(m.phase||'')}</span></td>
+      <td>${scoreHtml}</td>
       <td>${best ? `<div class="pick-lbl"><span class="pick-dot ${dot}"></span><span>${esc(best.label||'')}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">En attente</span>'}</td>
-      <td>${best?._rel!==null ? `<span class="badge-ev ${best._rel>0?'pos':best._rel<0?'neg':'neu'}">${fmtRel(best._rel)} pts</span>` : '—'}</td>
-      <td><span style="font-size:.8rem;color:var(--muted)">${best?._ev!==null?fmtEV(best._ev):'—'}</span></td>
+      <td class="col-ev">${best?._rel!==null ? `<span class="badge-ev ${best._rel>0?'pos':best._rel<0?'neg':'neu'}">${fmtRel(best._rel)} pts</span>` : '—'}</td>
+      <td class="col-ev"><span style="font-size:.8rem;color:var(--muted)">${best?._ev!==null?fmtEV(best._ev):'—'}</span></td>
+      <td style="text-align:center;font-size:.75rem;user-select:none;color:var(--muted);width:28px" id="tog-${m.id}">▼</td>
+    </tr>
+    <tr class="det-row" id="detail-${m.id}" style="display:none">
+      <td colspan="7" style="padding:2px 14px 12px 14px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#F0F2F5">
+            <th style="padding:6px 12px;text-align:left;font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase">Issue</th>
+            <th style="padding:6px 12px;text-align:left;font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase">EV absolue</th>
+            <th style="padding:6px 12px;text-align:left;font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase">EV vs field</th>
+          </tr></thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+      </td>
     </tr>`;
   }).join('');
 
   tbl.innerHTML = `<table class="tbl">
-    <thead><tr><th>Match</th><th>Phase</th><th>Pronostic recommandé</th><th>Avantage vs field</th><th>EV absolue</th></tr></thead>
+    <thead><tr><th>Match</th><th class="col-phase">Phase</th><th>Score conseillé</th><th>Pronostic recommandé</th><th class="col-ev">Avantage vs field</th><th class="col-ev">EV absolue</th><th style="width:28px"></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -464,7 +678,9 @@ function adminCard(m) {
   }).join('');
 
   const reco = m._best >= 0 ? m.outcomes[m._best] : null;
-  const banner = reco ? `<div class="reco-banner" id="reco-${m.id}">✅ Recommandé&nbsp;: <strong>${esc(reco.label||'')}</strong>${reco._rel!==null?' ('+fmtRel(reco._rel)+' pts vs field)':''}</div>` : `<div class="reco-banner" id="reco-${m.id}" style="display:none"></div>`;
+  const rlLbl = RL_META[S.riskLevel].label;
+  const recoSc = reco ? (S.riskLevel===1 ? `pop. ${(parseFloat(reco.popularity)||0).toFixed(0)}%` : S.riskLevel===3 ? `contrariant ${fmtEV(reco._sc)}` : `${fmtRel(reco._rel)} pts vs field`) : '';
+  const banner = reco ? `<div class="reco-banner" id="reco-${m.id}">${rlLbl} — Recommandé&nbsp;: <strong>${esc(reco.label||'')}</strong>${recoSc?' ('+recoSc+')':''}</div>` : `<div class="reco-banner" id="reco-${m.id}" style="display:none"></div>`;
 
   return `<div class="amcard" id="card-${m.id}">
     <div class="amcard-hdr">
@@ -485,6 +701,10 @@ function adminCard(m) {
       ${banner}
       ${popWarn?`<div class="pop-warn" style="display:block">⚠️ Total popularité = ${totPop.toFixed(0)}% (attendu ~100%)</div>`:''}
       ${m._fev!==null?`<div class="field-ev-note" id="fev-${m.id}">EV moyenne du field : ${fmtEV(m._fev)} pts</div>`:`<div class="field-ev-note" id="fev-${m.id}"></div>`}
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <label class="flbl" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">🎯 Pick conseillé <span style="font-weight:400;color:var(--muted)">(score à rentrer dans MPP)</span></label>
+        <input type="text" class="inp" data-mid="${m.id}" data-f="pickscore" value="${esc(m.pickscore||'')}" placeholder="Ex: Victoire France 2-1, Match nul 1-1...">
+      </div>
     </div>
   </div>`;
 }
@@ -494,6 +714,7 @@ function onInp(e) {
   const {mid, oi, f} = e.target.dataset;
   const match = S.data.matches.find(m => m.id === mid);
   if (!match) return;
+  if (f === 'pickscore') { match.pickscore = e.target.value; save(); renderPublic(); return; }
   match.outcomes[parseInt(oi)][f] = e.target.value;
 
   const em = enrich(match);
@@ -516,8 +737,12 @@ function onInp(e) {
   if (reco) {
     if (em._best >= 0) {
       const o = em.outcomes[em._best];
+      const rlLbl = RL_META[S.riskLevel].label;
+      const sc = S.riskLevel===1 ? `pop. ${(parseFloat(o.popularity)||0).toFixed(0)}%`
+               : S.riskLevel===3 ? `contrariant ${fmtEV(o._sc)}`
+               : `${fmtRel(o._rel)} pts vs field`;
       reco.style.display = '';
-      reco.innerHTML = `✅ Recommandé&nbsp;: <strong>${esc(o.label||'')}</strong>${o._rel!==null?' ('+fmtRel(o._rel)+' pts vs field)':''}`;
+      reco.innerHTML = `${rlLbl} — Recommandé&nbsp;: <strong>${esc(o.label||'')}</strong>${sc?' ('+sc+')':''}`;
     } else { reco.style.display='none'; }
   }
   if (fevEl) fevEl.textContent = em._fev!==null ? `EV moyenne du field : ${fmtEV(em._fev)} pts` : '';
@@ -738,6 +963,20 @@ function setup() {
   document.getElementById('file-import').addEventListener('change', e => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
 
   // Password change
+  // Risk level buttons
+  document.querySelectorAll('.risk-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      S.riskLevel = parseInt(btn.dataset.level);
+      document.querySelectorAll('.risk-btn').forEach(b => {
+        b.classList.toggle('on', parseInt(b.dataset.level) === S.riskLevel);
+      });
+      document.getElementById('risk-desc').textContent = RL_META[S.riskLevel].desc;
+      renderPublic();
+      if (S.isAdmin) renderAdmin();
+    });
+  });
+
+  document.getElementById('btn-load-cal').addEventListener('click', loadCalendar);
   document.getElementById('btn-chg-pwd').addEventListener('click', () => { document.getElementById('old-pwd').value=''; document.getElementById('new-pwd').value=''; document.getElementById('conf-pwd').value=''; document.getElementById('pwd-chg-err').style.display='none'; show('ov-pwd'); });
   document.getElementById('btn-pwd-save').addEventListener('click', savePwd);
   document.getElementById('btn-pwd-cancel').addEventListener('click', () => hide('ov-pwd'));
@@ -749,6 +988,37 @@ function setup() {
       if (S.isAdmin) logout(); else document.getElementById('btn-admin-toggle').click();
     }
   });
+}
+
+// ─── LOAD CALENDAR ───────────────────────────────────────────
+function loadCalendar() {
+  const existing = S.data.matches.length;
+  const msg = existing
+    ? `Remplacer les ${existing} matchs existants par le calendrier officiel CDM 2026 (${PC.length} matchs) ?`
+    : `Charger le calendrier officiel CDM 2026 (${PC.length} matchs) ?`;
+  if (!confirm(msg)) return;
+  S.data.matches = PC.map(m => {
+    const isKO = m.type === 'ko';
+    const outs = isKO
+      ? [{id:uid(),label:`Victoire ${m.tA}`,points:'',fairOdd:'',popularity:''},
+         {id:uid(),label:`Victoire ${m.tB}`,points:'',fairOdd:'',popularity:''}]
+      : [{id:uid(),label:`Victoire ${m.tA}`,points:'',fairOdd:'',popularity:''},
+         {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
+         {id:uid(),label:`Victoire ${m.tB}`,points:'',fairOdd:'',popularity:''}];
+    return {id:uid(),teamA:m.tA,teamB:m.tB,date:m.date,time:m.time,phase:m.phase,type:m.type,outcomes:outs};
+  });
+  save(); renderAdmin(); renderPublic();
+  toast(`${PC.length} matchs chargés ✓`, 'ok');
+}
+
+// ─── DETAIL TOGGLE ───────────────────────────────────────────
+function toggleDetail(id) {
+  const el = document.getElementById('detail-'+id);
+  const ico = document.getElementById('tog-'+id);
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  if (ico) { ico.textContent = open ? '▼' : '▲'; ico.style.color = open ? 'var(--muted)' : 'var(--g)'; }
 }
 
 // ─── INIT ────────────────────────────────────────────────────
