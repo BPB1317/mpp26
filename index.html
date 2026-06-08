@@ -151,6 +151,12 @@ select.inp{cursor:pointer}
 .risk-btn.lv1.on{background:#EFF6FF;border-color:#3B82F6;color:#1D4ED8}
 .risk-btn.lv2.on{background:#D1FAE5;border-color:var(--ok);color:#065F46}
 .risk-btn.lv3.on{background:#FEF3C7;border-color:#D97706;color:#92400E}
+.mr-btns{display:flex;gap:3px}
+.mr-btn{width:26px;height:26px;border-radius:6px;border:1.5px solid var(--border);background:transparent;cursor:pointer;font-size:.75rem;padding:0;display:flex;align-items:center;justify-content:center;transition:all .12s;line-height:1}
+.mr-btn:hover{border-color:var(--g);background:#F0F9F4}
+.mr-btn.lv1.on{background:#EFF6FF;border-color:#3B82F6}
+.mr-btn.lv2.on{background:#D1FAE5;border-color:var(--ok)}
+.mr-btn.lv3.on{background:#FEF3C7;border-color:#D97706}
 .risk-formula{font-size:.75rem;color:var(--muted);font-style:italic;margin-left:auto;text-align:right;max-width:380px;line-height:1.4}
 .score-badge{display:inline-block;padding:3px 10px;background:linear-gradient(135deg,var(--g-dark),var(--g));color:#fff;border-radius:20px;font-size:.8rem;font-weight:700;letter-spacing:.2px}
 .main-row{cursor:pointer}.main-row:hover td{background:#F5F7FF!important}
@@ -197,7 +203,7 @@ select.inp{cursor:pointer}
     <div id="last-updated-bar"></div>
 
     <div class="risk-bar">
-      <span class="rlbl">Niveau de risque :</span>
+      <span class="rlbl">Niveau par défaut :</span>
       <div class="risk-btns">
         <button class="risk-btn lv1" data-level="1">🛡 Sûr</button>
         <button class="risk-btn lv2 on" data-level="2">⚖ Standard</button>
@@ -449,7 +455,7 @@ const PC = [
 ];
 
 // ─── STATE ───────────────────────────────────────────────────
-const S = { data: null, isAdmin: false, riskLevel: 2 };
+const S = { data: null, isAdmin: false, riskLevel: 2, matchRiskLevels: {} };
 const RL_META = {
   1: { label:'🛡 Sûr',     formula:'argmax( popularité )',          desc:'argmax( popularité ) — suit le field, variance minimale. Idéal quand vous êtes en tête.' },
   2: { label:'⚖ Standard', formula:'argmax( EV − EV_field )',       desc:'argmax( EV − EV_field ) — maximise l\'espérance de gain vs le field sur la durée.' },
@@ -507,8 +513,8 @@ function fieldEV(outcomes) {
   return valid.reduce((s,x) => s + (x.pop/total)*x.e, 0);
 }
 
-function rlScore(o, fev) {
-  const e = o._ev, pop = parseFloat(o.popularity)||0, rl = S.riskLevel;
+function rlScore(o, fev, rl) {
+  const e = o._ev, pop = parseFloat(o.popularity)||0;
   if (e === null) return null;
   if (rl === 1) return pop;
   if (rl === 2) return fev !== null ? e - fev : e;
@@ -517,10 +523,11 @@ function rlScore(o, fev) {
 
 function enrich(match) {
   const fev = fieldEV(match.outcomes);
+  const rl = (S.matchRiskLevels && S.matchRiskLevels[match.id]) || S.riskLevel || 2;
   const outs = match.outcomes.map(o => {
     const e = ev(o.points, o.fairOdd);
     const r = (e !== null && fev !== null) ? e - fev : null;
-    const sc = rlScore({...o, _ev:e}, fev);
+    const sc = rlScore({...o, _ev:e}, fev, rl);
     return {...o, _ev:e, _rel:r, _sc:sc};
   });
   let best = -1, bestScore = -Infinity;
@@ -545,7 +552,7 @@ function renderPublic() {
 
   // Top picks strip
   const tpSec = document.getElementById('top-picks-section');
-  const topPicks = matches.filter(m => m._best >= 0 && m.outcomes[m._best]._sc !== null)
+  const topPicks = matches.filter(m => m.pickscore && m.pickscore.trim() && m._best >= 0 && m.outcomes[m._best]._sc !== null)
     .sort((a,b) => (b.outcomes[b._best]._sc||0) - (a.outcomes[a._best]._sc||0))
     .slice(0, 6);
 
@@ -593,13 +600,22 @@ function renderPublic() {
     return;
   }
 
-  const rows = matches.map(m => {
+  const scoredMatches = matches.filter(m => m.pickscore && m.pickscore.trim());
+
+  if (!scoredMatches.length) {
+    tbl.innerHTML = '<div class="empty"><div class="empty-ico">📋</div><h3>Aucun pronostic disponible</h3><p>Les recommandations apparaîtront ici une fois que les scores sont saisis dans la partie admin.</p></div>';
+    return;
+  }
+
+  const rows = scoredMatches.map(m => {
+    const ml = (S.matchRiskLevels||{})[m.id] || S.riskLevel;
     const best = m._best >= 0 ? m.outcomes[m._best] : null;
     const pc = PHASE_COLORS[m.phase]||'#6B7280';
     const dot = best?._rel > 0 ? 'pos' : best?._rel < 0 ? 'neg' : 'neu';
-    const scoreHtml = m.pickscore
-      ? `<span class="score-badge">${esc(m.pickscore)}</span>`
-      : `<span style="color:var(--muted);font-size:.78rem">—</span>`;
+    const rlBtns = [1,2,3].map(l => {
+      const icons = {1:'🛡',2:'⚖',3:'🔥'};
+      return `<button class="mr-btn lv${l}${ml===l?' on':''}" onclick="event.stopPropagation();setMatchRL('${m.id}',${l})" title="${RL_META[l].desc}">${icons[l]}</button>`;
+    }).join('');
     const detailRows = m.outcomes.map((o, i) => {
       const isBest = i === m._best;
       const relCls = o._rel===null?'neu':o._rel>=0?'pos':'neg';
@@ -610,10 +626,10 @@ function renderPublic() {
       </tr>`;
     }).join('');
     return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
-      <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''}</div></td>
-      <td class="col-phase"><span class="phase-tag" style="background:${pc}22;color:${pc}">${esc(m.phase||'')}</span></td>
-      <td>${scoreHtml}</td>
-      <td>${best ? `<div class="pick-lbl"><span class="pick-dot ${dot}"></span><span>${esc(best.label||'')}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">En attente</span>'}</td>
+      <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''} · <span style="color:${pc};font-weight:600;font-size:.7rem">${esc(m.phase||'')}</span></div></td>
+      <td><span class="score-badge">${esc(m.pickscore)}</span></td>
+      <td onclick="event.stopPropagation()"><div class="mr-btns">${rlBtns}</div></td>
+      <td>${best ? `<div class="pick-lbl"><span class="pick-dot ${dot}"></span><span>${esc(best.label||'')}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">—</span>'}</td>
       <td class="col-ev">${best?._rel!==null ? `<span class="badge-ev ${best._rel>0?'pos':best._rel<0?'neg':'neu'}">${fmtRel(best._rel)} pts</span>` : '—'}</td>
       <td class="col-ev"><span style="font-size:.8rem;color:var(--muted)">${best?._ev!==null?fmtEV(best._ev):'—'}</span></td>
       <td style="text-align:center;font-size:.75rem;user-select:none;color:var(--muted);width:28px" id="tog-${m.id}">▼</td>
@@ -633,7 +649,7 @@ function renderPublic() {
   }).join('');
 
   tbl.innerHTML = `<table class="tbl">
-    <thead><tr><th>Match</th><th class="col-phase">Phase</th><th>Score conseillé</th><th>Pronostic recommandé</th><th class="col-ev">Avantage vs field</th><th class="col-ev">EV absolue</th><th style="width:28px"></th></tr></thead>
+    <thead><tr><th>Match</th><th>Score conseillé</th><th>Niveau</th><th>Pronostic recommandé</th><th class="col-ev">EV vs field</th><th class="col-ev">EV absolue</th><th style="width:28px"></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -967,6 +983,7 @@ function setup() {
   document.querySelectorAll('.risk-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       S.riskLevel = parseInt(btn.dataset.level);
+      S.matchRiskLevels = {};
       document.querySelectorAll('.risk-btn').forEach(b => {
         b.classList.toggle('on', parseInt(b.dataset.level) === S.riskLevel);
       });
@@ -1012,6 +1029,13 @@ function loadCalendar() {
 }
 
 // ─── DETAIL TOGGLE ───────────────────────────────────────────
+function setMatchRL(mid, level) {
+  if (!S.matchRiskLevels) S.matchRiskLevels = {};
+  S.matchRiskLevels[mid] = level;
+  renderPublic();
+  if (S.isAdmin) renderAdmin();
+}
+
 function toggleDetail(id) {
   const el = document.getElementById('detail-'+id);
   const ico = document.getElementById('tog-'+id);
