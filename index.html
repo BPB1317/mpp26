@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MPP 2026 — Pronostics Coupe du Monde</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --g-dark:#1B4332;--g:#2D6A4F;--g-light:#40916C;
+  --gold:#D4AC0D;--gold-l:#F4D03F;
+  --bg:#F0F2F5;--white:#fff;--text:#212529;--muted:#6C757D;--border:#DEE2E6;
+  --ok:#198754;--bad:#DC3545;--warn:#FFC107;
+  --r:10px;--sh:0 2px 12px rgba(0,0,0,.08);--sh-lg:0 8px 32px rgba(0,0,0,.16);
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* HEADER */
+.hdr{background:linear-gradient(135deg,var(--g-dark),var(--g));color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 3px 10px rgba(0,0,0,.2);position:sticky;top:0;z-index:100}
+.hdr-l{display:flex;align-items:center;gap:12px}
+.hdr-ico{width:42px;height:42px;background:var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--g-dark);font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.3);flex-shrink:0}
+.hdr-t h1{font-size:1.2rem;font-weight:700}
+.hdr-t p{font-size:.75rem;opacity:.7;margin-top:1px}
+.hdr-r{display:flex;gap:8px;align-items:center}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:none;font-size:.85rem;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;text-decoration:none}
+.btn:hover{opacity:.88;transform:translateY(-1px)}.btn:active{transform:none}
+.btn-primary{background:var(--gold);color:var(--g-dark)}
+.btn-ok{background:var(--ok);color:#fff}
+.btn-bad{background:var(--bad);color:#fff}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-outline{background:transparent;color:var(--g);border:1.5px solid var(--g)}
+.btn-hdr{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.3)}
+.btn-sm{padding:5px 10px;font-size:.78rem;border-radius:6px}
+.btn-ico{padding:8px;border-radius:8px;background:rgba(255,255,255,.15);color:#fff;border:none;cursor:pointer;font-size:1rem}
+.btn-ico:hover{background:rgba(255,255,255,.25)}
+
+/* LAYOUT */
+.wrap{max-width:1100px;margin:0 auto;padding:24px 16px}
+.view{display:none}.view.on{display:block}
+
+/* PAGE TITLE */
+.ptitle{text-align:center;margin-bottom:24px}
+.ptitle h2{font-size:1.5rem;font-weight:700;color:var(--g-dark)}
+.ptitle p{color:var(--muted);margin-top:4px;font-size:.875rem}
+
+/* TABLE CARD */
+.tcard{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;margin-bottom:20px}
+.tcard-head{background:var(--g-dark);color:#fff;padding:13px 18px;display:flex;align-items:center;gap:10px;font-weight:600;font-size:.9rem}
+
+.tbl{width:100%;border-collapse:collapse;font-size:.85rem}
+.tbl th{padding:9px 14px;text-align:left;background:#F8F9FA;color:var(--muted);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#FAFAFA}
+
+/* BADGES */
+.badge-ev{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;font-size:.76rem;font-weight:700}
+.badge-ev.pos{background:#D1FAE5;color:#065F46}
+.badge-ev.neg{background:#FEE2E2;color:#991B1B}
+.badge-ev.neu{background:#F3F4F6;color:#374151}
+
+.phase-tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700}
+.pick-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
+.pick-dot.pos{background:var(--ok)}.pick-dot.neg{background:var(--bad)}.pick-dot.neu{background:var(--warn)}
+.pick-lbl{display:inline-flex;align-items:center;gap:7px;font-weight:600}
+
+.minfo-teams{font-weight:600}
+.minfo-meta{font-size:.76rem;color:var(--muted);margin-top:2px}
+
+/* EMPTY STATE */
+.empty{text-align:center;padding:48px 20px;color:var(--muted)}
+.empty-ico{font-size:3rem;margin-bottom:12px}
+.empty h3{font-size:1rem;margin-bottom:6px;color:var(--text)}
+.empty p{font-size:.85rem}
+
+/* ADMIN TOOLBAR */
+.atb{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:14px 18px;background:#fff;border-radius:var(--r);box-shadow:var(--sh);margin-bottom:18px}
+.atb h2{font-size:1rem;font-weight:700;color:var(--g-dark);margin-right:auto}
+
+/* ADMIN MATCH CARDS */
+.amlist{display:flex;flex-direction:column;gap:14px}
+.amcard{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.amcard-hdr{display:flex;align-items:center;gap:10px;padding:13px 18px;background:#F8F9FA;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+.amcard-hdr:hover{background:#F0F2F5}
+.am-title{flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.am-teams{font-weight:700;font-size:.95rem;white-space:nowrap}
+.am-meta{font-size:.76rem;color:var(--muted)}
+.collapse-ico{transition:transform .2s;font-size:.85rem;color:var(--muted);flex-shrink:0}
+.amcard.closed .collapse-ico{transform:rotate(-90deg)}
+.amcard.closed .am-body{display:none}
+
+.am-body{padding:18px}
+.outcomes-grid{display:flex;flex-direction:column;gap:10px}
+.orow{display:grid;grid-template-columns:1.8fr 90px 100px 100px 90px 100px;gap:8px;align-items:end;padding:12px 14px;background:#F8F9FA;border-radius:8px;border:2px solid transparent;transition:border-color .15s}
+.orow.best{border-color:var(--ok);background:#F0FDF4}
+.orow label{font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px}
+.inp{width:100%;padding:7px 9px;border:1.5px solid var(--border);border-radius:6px;font-size:.85rem;font-family:inherit;background:#fff;color:var(--text);transition:border-color .15s}
+.inp:focus{outline:none;border-color:var(--g);box-shadow:0 0 0 3px rgba(45,106,79,.1)}
+.calc{padding:7px 9px;border-radius:6px;text-align:center;font-size:.85rem;font-weight:700;background:#EEF2FF;color:#4338CA;width:100%}
+.calc.pos{background:#D1FAE5;color:#065F46}.calc.neg{background:#FEE2E2;color:#991B1B}.calc.neu{background:#F3F4F6;color:#374151}
+
+.reco-banner{margin-top:12px;padding:10px 14px;background:linear-gradient(135deg,#D1FAE5,#A7F3D0);border-radius:8px;border-left:4px solid var(--ok);font-size:.875rem;font-weight:600;color:#065F46;display:flex;align-items:center;gap:8px}
+.field-ev-note{margin-top:8px;font-size:.78rem;color:var(--muted);text-align:right}
+.pop-warn{margin-top:6px;font-size:.75rem;color:var(--warn);font-weight:600;display:none}
+
+/* MODALS */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.overlay.off{display:none}
+.modal{background:#fff;border-radius:14px;box-shadow:var(--sh-lg);width:100%;max-width:520px;overflow:hidden}
+.modal-wide{max-width:620px}
+.mhdr{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.mhdr h3{font-size:1.05rem;font-weight:700}
+.mbody{padding:22px}
+.mftr{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+.close-x{background:transparent;border:none;cursor:pointer;font-size:1.2rem;color:var(--muted);padding:4px}
+.close-x:hover{color:var(--text)}
+.fgrp{margin-bottom:14px}
+.flbl{display:block;font-size:.82rem;font-weight:600;color:var(--text);margin-bottom:5px}
+.frow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+select.inp{cursor:pointer}
+.ferr{font-size:.78rem;color:var(--bad);margin-top:6px;display:none}
+
+/* LOGIN */
+.login-card{background:#fff;border-radius:16px;padding:36px;width:100%;max-width:360px;text-align:center;box-shadow:var(--sh-lg)}
+.login-ico{width:60px;height:60px;background:var(--g-dark);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 14px;color:#fff}
+.login-card h2{font-size:1.2rem;font-weight:700;color:var(--g-dark);margin-bottom:6px}
+.login-card p{font-size:.83rem;color:var(--muted);margin-bottom:20px}
+
+/* TOAST */
+.toasts{position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:8px}
+.toast{padding:11px 16px;border-radius:10px;background:var(--text);color:#fff;font-size:.85rem;font-weight:500;box-shadow:var(--sh-lg);animation:tin .2s ease;max-width:280px}
+.toast.ok{background:var(--ok)}.toast.err{background:var(--bad)}
+@keyframes tin{from{transform:translateX(110%);opacity:0}to{transform:none;opacity:1}}
+@keyframes tout{to{opacity:0;transform:translateX(110%)}}
+
+/* TOP PICKS */
+.top-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:24px}
+.tp-card{background:#fff;border-radius:var(--r);box-shadow:var(--sh);padding:14px 16px;border-top:4px solid var(--ok)}
+.tp-card.neg{border-top-color:var(--bad)}.tp-card.neu{border-top-color:var(--warn)}
+.tp-match{font-size:.75rem;color:var(--muted);font-weight:500;margin-bottom:4px}
+.tp-pick{font-size:.9rem;font-weight:700;color:var(--text);margin-bottom:6px}
+.tp-ev{font-size:.8rem;font-weight:600}
+
+/* UTILS */
+.hidden{display:none!important}
+.d-flex{display:flex}.ai-c{align-items:center}.gap-2{gap:8px}
+@media(max-width:700px){
+  .orow{grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .tbl th:nth-child(4),.tbl td:nth-child(4),.tbl th:nth-child(5),.tbl td:nth-child(5){display:none}
+  .hdr-t p{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-l">
+    <div class="hdr-ico">⚽</div>
+    <div class="hdr-t">
+      <h1>MPP 2026</h1>
+      <p>Coupe du Monde — Pronostics</p>
+    </div>
+  </div>
+  <div class="hdr-r">
+    <button class="btn-ico" id="btn-admin-toggle" title="Accès admin (Ctrl+Alt+A)">🔐</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ===== PUBLIC VIEW ===== -->
+  <div class="view on" id="view-public">
+    <div class="ptitle">
+      <h2>🏆 Mes Pronostics</h2>
+      <p>Recommandations basées sur l'espérance de gain (EV) par rapport au field</p>
+    </div>
+
+    <div id="top-picks-section"></div>
+
+    <div class="tcard">
+      <div class="tcard-head">📋 Tableau des recommandations</div>
+      <div id="public-table"></div>
+    </div>
+  </div>
+
+  <!-- ===== ADMIN VIEW ===== -->
+  <div class="view" id="view-admin">
+    <div class="atb">
+      <h2>⚙️ Administration des matchs</h2>
+      <button class="btn btn-ok" id="btn-add-match">+ Ajouter un match</button>
+      <button class="btn btn-outline" id="btn-share">🔗 Copier le lien</button>
+      <button class="btn btn-ghost" id="btn-export">📥 Exporter JSON</button>
+      <button class="btn btn-ghost" id="btn-import">📤 Importer JSON</button>
+      <button class="btn btn-ghost" id="btn-chg-pwd">🔑 Mot de passe</button>
+    </div>
+    <div class="amlist" id="admin-list"></div>
+  </div>
+
+</div>
+
+<!-- ===== LOGIN OVERLAY ===== -->
+<div class="overlay off" id="ov-login">
+  <div class="login-card">
+    <div class="login-ico">🔐</div>
+    <h2>Accès Admin</h2>
+    <p>Mot de passe pour saisir et modifier les données des matchs.</p>
+    <div class="fgrp">
+      <input type="password" class="inp" id="pwd-input" placeholder="Mot de passe..." style="text-align:center;font-size:1rem;padding:11px">
+    </div>
+    <div class="ferr" id="pwd-err">Mot de passe incorrect.</div>
+    <div class="d-flex gap-2 ai-c" style="justify-content:center;margin-top:14px">
+      <button class="btn btn-ghost" id="btn-login-cancel">Annuler</button>
+      <button class="btn btn-primary" id="btn-login-ok">Accéder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MATCH MODAL ===== -->
+<div class="overlay off" id="ov-match">
+  <div class="modal modal-wide">
+    <div class="mhdr">
+      <h3 id="match-modal-title">Ajouter un match</h3>
+      <button class="close-x" id="btn-match-close">✕</button>
+    </div>
+    <div class="mbody">
+      <input type="hidden" id="m-edit-id">
+      <div class="frow2">
+        <div class="fgrp"><label class="flbl">Équipe A *</label><input type="text" class="inp" id="m-teamA" placeholder="Ex: France"></div>
+        <div class="fgrp"><label class="flbl">Équipe B *</label><input type="text" class="inp" id="m-teamB" placeholder="Ex: Maroc"></div>
+      </div>
+      <div class="frow2">
+        <div class="fgrp"><label class="flbl">Date</label><input type="date" class="inp" id="m-date"></div>
+        <div class="fgrp"><label class="flbl">Heure</label><input type="time" class="inp" id="m-time"></div>
+      </div>
+      <div class="frow2">
+        <div class="fgrp">
+          <label class="flbl">Phase</label>
+          <select class="inp" id="m-phase">
+            <option>Groupe A</option><option>Groupe B</option><option>Groupe C</option><option>Groupe D</option>
+            <option>Groupe E</option><option>Groupe F</option><option>Groupe G</option><option>Groupe H</option>
+            <option>Groupe I</option><option>Groupe J</option><option>Groupe K</option><option>Groupe L</option>
+            <option>Huitièmes</option><option>Quarts de finale</option><option>Demi-finales</option>
+            <option>Finale</option><option>Match 3e place</option>
+          </select>
+        </div>
+        <div class="fgrp">
+          <label class="flbl">Type de match</label>
+          <select class="inp" id="m-type">
+            <option value="group">Phase de groupe (1 / N / 2)</option>
+            <option value="ko">Élimination directe (1 / 2)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="mftr">
+      <button class="btn btn-ghost" id="btn-match-cancel">Annuler</button>
+      <button class="btn btn-ok" id="btn-match-save">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PASSWORD CHANGE MODAL ===== -->
+<div class="overlay off" id="ov-pwd">
+  <div class="modal" style="max-width:380px">
+    <div class="mhdr"><h3>Changer le mot de passe</h3><button class="close-x" id="btn-pwd-close">✕</button></div>
+    <div class="mbody">
+      <div class="fgrp"><label class="flbl">Ancien mot de passe</label><input type="password" class="inp" id="old-pwd"></div>
+      <div class="fgrp"><label class="flbl">Nouveau mot de passe</label><input type="password" class="inp" id="new-pwd"></div>
+      <div class="fgrp"><label class="flbl">Confirmer</label><input type="password" class="inp" id="conf-pwd"></div>
+      <div class="ferr" id="pwd-chg-err"></div>
+    </div>
+    <div class="mftr">
+      <button class="btn btn-ghost" id="btn-pwd-cancel">Annuler</button>
+      <button class="btn btn-ok" id="btn-pwd-save">Changer</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<input type="file" accept=".json" id="file-import" class="hidden">
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────
+const SK = 'mpp2026_v1';
+const DEF_PWD = 'mpp2026';
+const PHASE_COLORS = {
+  'Groupe A':'#6366F1','Groupe B':'#8B5CF6','Groupe C':'#EC4899','Groupe D':'#F59E0B',
+  'Groupe E':'#10B981','Groupe F':'#3B82F6','Groupe G':'#EF4444','Groupe H':'#14B8A6',
+  'Groupe I':'#F97316','Groupe J':'#84CC16','Groupe K':'#06B6D4','Groupe L':'#A855F7',
+  'Huitièmes':'#1D4ED8','Quarts de finale':'#DC2626','Demi-finales':'#7C3AED',
+  'Finale':'#D97706','Match 3e place':'#6B7280'
+};
+
+// ─── STATE ───────────────────────────────────────────────────
+const S = { data: null, isAdmin: false };
+
+// ─── DATA ────────────────────────────────────────────────────
+function defData() { return { version:1, adminPassword: DEF_PWD, matches:[] }; }
+
+function loadData() {
+  const h = location.hash;
+  if (h.startsWith('#data=')) {
+    try { return JSON.parse(decodeURIComponent(atob(h.slice(6)))); } catch(e){}
+  }
+  try {
+    const s = localStorage.getItem(SK);
+    if (s) return JSON.parse(s);
+  } catch(e){}
+  return defData();
+}
+
+function loadAdminData() {
+  try {
+    const s = localStorage.getItem(SK);
+    if (s) return JSON.parse(s);
+  } catch(e){}
+  return defData();
+}
+
+function save() {
+  try { localStorage.setItem(SK, JSON.stringify(S.data)); } catch(e) { toast('Erreur sauvegarde','err'); }
+}
+
+function shareURL() {
+  const enc = btoa(encodeURIComponent(JSON.stringify(S.data)));
+  return location.origin + location.pathname + '#data=' + enc;
+}
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
+
+// ─── EV MATH ─────────────────────────────────────────────────
+function ev(pts, odd) {
+  const p = parseFloat(pts), o = parseFloat(odd);
+  if (!p || !o || o <= 0) return null;
+  return p * (1/o);
+}
+
+function fieldEV(outcomes) {
+  const items = outcomes.map(o => ({ e: ev(o.points, o.fairOdd), pop: parseFloat(o.popularity)||0 }));
+  const valid = items.filter(x => x.e !== null);
+  if (!valid.length) return null;
+  const total = valid.reduce((s,x) => s+x.pop, 0);
+  if (total <= 0) return valid.reduce((s,x) => s+x.e, 0) / valid.length;
+  return valid.reduce((s,x) => s + (x.pop/total)*x.e, 0);
+}
+
+function enrich(match) {
+  const fev = fieldEV(match.outcomes);
+  const outs = match.outcomes.map(o => {
+    const e = ev(o.points, o.fairOdd);
+    const r = (e !== null && fev !== null) ? e - fev : null;
+    return {...o, _ev:e, _rel:r};
+  });
+  let best = -1, bestScore = -Infinity;
+  outs.forEach((o,i) => {
+    const sc = o._rel !== null ? o._rel : (o._ev !== null ? o._ev : -Infinity);
+    if (sc > bestScore) { bestScore=sc; best=i; }
+  });
+  return {...match, outcomes:outs, _fev:fev, _best:best};
+}
+
+// ─── FORMAT ──────────────────────────────────────────────────
+function fmtEV(v) { if (v===null||v===undefined||isNaN(v)) return '—'; return v.toFixed(2); }
+function fmtRel(v) { if (v===null||v===undefined||isNaN(v)) return '—'; return (v>=0?'+':'')+v.toFixed(2); }
+function fmtDate(s) {
+  if (!s) return '';
+  try { return new Date(s+'T12:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}); } catch(e){return s;}
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ─── RENDER PUBLIC ────────────────────────────────────────────
+function renderPublic() {
+  const matches = S.data.matches.map(enrich).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+
+  // Top picks strip
+  const tpSec = document.getElementById('top-picks-section');
+  const topPicks = matches.filter(m => m._best >= 0 && m.outcomes[m._best]._rel !== null)
+    .sort((a,b) => (b.outcomes[b._best]._rel||0) - (a.outcomes[a._best]._rel||0))
+    .slice(0,6);
+
+  if (topPicks.length) {
+    tpSec.innerHTML = '<div class="ptitle" style="margin-bottom:12px"><p style="font-weight:600;color:var(--g-dark)">Meilleurs picks du moment</p></div>' +
+      '<div class="top-picks">' + topPicks.map(m => {
+        const o = m.outcomes[m._best];
+        const cls = o._rel > 0.1 ? '' : o._rel < 0 ? 'neg' : 'neu';
+        return `<div class="tp-card ${cls}">
+          <div class="tp-match">${esc(m.teamA)} vs ${esc(m.teamB)} · ${esc(m.phase||'')}</div>
+          <div class="tp-pick">→ ${esc(o.label||'')}</div>
+          <div class="tp-ev ${cls||'pos'}" style="color:${o._rel>0?'var(--ok)':o._rel<0?'var(--bad)':'var(--warn)'}">
+            ${fmtRel(o._rel)} pts vs field
+          </div>
+        </div>`;
+      }).join('') + '</div>';
+  } else {
+    tpSec.innerHTML = '';
+  }
+
+  // Main table
+  const tbl = document.getElementById('public-table');
+  if (!matches.length) {
+    tbl.innerHTML = '<div class="empty"><div class="empty-ico">📊</div><h3>Aucun match configuré</h3><p>Les pronostics apparaîtront ici une fois les données saisies.</p></div>';
+    return;
+  }
+
+  const rows = matches.map(m => {
+    const best = m._best >= 0 ? m.outcomes[m._best] : null;
+    const pc = PHASE_COLORS[m.phase]||'#6B7280';
+    const dot = best?._rel > 0 ? 'pos' : best?._rel < 0 ? 'neg' : 'neu';
+    return `<tr>
+      <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''}</div></td>
+      <td><span class="phase-tag" style="background:${pc}22;color:${pc}">${esc(m.phase||'')}</span></td>
+      <td>${best ? `<div class="pick-lbl"><span class="pick-dot ${dot}"></span><span>${esc(best.label||'')}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">En attente</span>'}</td>
+      <td>${best?._rel!==null ? `<span class="badge-ev ${best._rel>0?'pos':best._rel<0?'neg':'neu'}">${fmtRel(best._rel)} pts</span>` : '—'}</td>
+      <td><span style="font-size:.8rem;color:var(--muted)">${best?._ev!==null?fmtEV(best._ev):'—'}</span></td>
+    </tr>`;
+  }).join('');
+
+  tbl.innerHTML = `<table class="tbl">
+    <thead><tr><th>Match</th><th>Phase</th><th>Pronostic recommandé</th><th>Avantage vs field</th><th>EV absolue</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─── RENDER ADMIN ─────────────────────────────────────────────
+function renderAdmin() {
+  const list = document.getElementById('admin-list');
+  const matches = S.data.matches.map(enrich).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+
+  if (!matches.length) {
+    list.innerHTML = '<div class="empty"><div class="empty-ico">⚽</div><h3>Aucun match</h3><p>Cliquez sur "+ Ajouter un match" pour commencer.</p></div>';
+    return;
+  }
+
+  list.innerHTML = matches.map(m => adminCard(m)).join('');
+
+  list.querySelectorAll('input[data-mid]').forEach(inp => inp.addEventListener('input', onInp));
+  list.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', e => delMatch(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', e => openEdit(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.amcard-hdr').forEach(h => h.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    h.closest('.amcard').classList.toggle('closed');
+  }));
+}
+
+function adminCard(m) {
+  const pc = PHASE_COLORS[m.phase]||'#6B7280';
+  const totPop = m.outcomes.reduce((s,o)=>s+(parseFloat(o.popularity)||0),0);
+  const popWarn = totPop > 0 && (totPop < 95 || totPop > 105);
+
+  const outs = m.outcomes.map((o,i) => {
+    const isBest = i === m._best;
+    const relCls = o._rel===null?'neu':o._rel>=0?'pos':'neg';
+    return `<div class="orow${isBest?' best':''}" id="orow-${m.id}-${i}">
+      <div><label>Résultat</label><input class="inp" type="text" data-mid="${m.id}" data-oi="${i}" data-f="label" value="${esc(o.label||'')}" placeholder="Ex: Victoire ${esc(m.teamA||'A')}"></div>
+      <div><label>Pts MPP</label><input class="inp" type="number" data-mid="${m.id}" data-oi="${i}" data-f="points" value="${o.points||''}" placeholder="0" min="0" step="0.5"></div>
+      <div><label>Cote juste</label><input class="inp" type="number" data-mid="${m.id}" data-oi="${i}" data-f="fairOdd" value="${o.fairOdd||''}" placeholder="1.00" min="1.01" step="0.01"></div>
+      <div><label>Popularité %</label><input class="inp" type="number" data-mid="${m.id}" data-oi="${i}" data-f="popularity" value="${o.popularity||''}" placeholder="0–100" min="0" max="100" step="1"></div>
+      <div><label>EV</label><div class="calc" id="ev-${m.id}-${i}">${fmtEV(o._ev)}</div></div>
+      <div><label>EV vs field</label><div class="calc ${relCls}" id="rel-${m.id}-${i}">${fmtRel(o._rel)}</div></div>
+    </div>`;
+  }).join('');
+
+  const reco = m._best >= 0 ? m.outcomes[m._best] : null;
+  const banner = reco ? `<div class="reco-banner" id="reco-${m.id}">✅ Recommandé&nbsp;: <strong>${esc(reco.label||'')}</strong>${reco._rel!==null?' ('+fmtRel(reco._rel)+' pts vs field)':''}</div>` : `<div class="reco-banner" id="reco-${m.id}" style="display:none"></div>`;
+
+  return `<div class="amcard" id="card-${m.id}">
+    <div class="amcard-hdr">
+      <span class="collapse-ico">▼</span>
+      <div class="am-title">
+        <span class="am-teams">${esc(m.teamA||'?')} vs ${esc(m.teamB||'?')}</span>
+        <span class="phase-tag" style="background:${pc}22;color:${pc}">${esc(m.phase||'')}</span>
+        ${m.date?`<span class="am-meta">📅 ${fmtDate(m.date)}${m.time?' '+esc(m.time):''}</span>`:''}
+        ${m._fev!==null?`<span class="am-meta">Field EV: ${fmtEV(m._fev)}</span>`:''}
+      </div>
+      <div class="d-flex gap-2" style="flex-shrink:0">
+        <button class="btn btn-ghost btn-sm btn-edit" data-id="${m.id}">✏️</button>
+        <button class="btn btn-bad btn-sm btn-del" data-id="${m.id}">🗑️</button>
+      </div>
+    </div>
+    <div class="am-body">
+      <div class="outcomes-grid">${outs}</div>
+      ${banner}
+      ${popWarn?`<div class="pop-warn" style="display:block">⚠️ Total popularité = ${totPop.toFixed(0)}% (attendu ~100%)</div>`:''}
+      ${m._fev!==null?`<div class="field-ev-note" id="fev-${m.id}">EV moyenne du field : ${fmtEV(m._fev)} pts</div>`:`<div class="field-ev-note" id="fev-${m.id}"></div>`}
+    </div>
+  </div>`;
+}
+
+// ─── INLINE UPDATE ────────────────────────────────────────────
+function onInp(e) {
+  const {mid, oi, f} = e.target.dataset;
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match) return;
+  match.outcomes[parseInt(oi)][f] = e.target.value;
+
+  const em = enrich(match);
+
+  em.outcomes.forEach((o, i) => {
+    const evEl = document.getElementById(`ev-${mid}-${i}`);
+    const relEl = document.getElementById(`rel-${mid}-${i}`);
+    const row = document.getElementById(`orow-${mid}-${i}`);
+
+    if (evEl) evEl.textContent = fmtEV(o._ev);
+    if (relEl) {
+      relEl.textContent = fmtRel(o._rel);
+      relEl.className = 'calc ' + (o._rel===null?'neu':o._rel>=0?'pos':'neg');
+    }
+    if (row) { row.classList.toggle('best', i === em._best); }
+  });
+
+  const reco = document.getElementById(`reco-${mid}`);
+  const fevEl = document.getElementById(`fev-${mid}`);
+  if (reco) {
+    if (em._best >= 0) {
+      const o = em.outcomes[em._best];
+      reco.style.display = '';
+      reco.innerHTML = `✅ Recommandé&nbsp;: <strong>${esc(o.label||'')}</strong>${o._rel!==null?' ('+fmtRel(o._rel)+' pts vs field)':''}`;
+    } else { reco.style.display='none'; }
+  }
+  if (fevEl) fevEl.textContent = em._fev!==null ? `EV moyenne du field : ${fmtEV(em._fev)} pts` : '';
+
+  save();
+  renderPublic();
+}
+
+// ─── MATCH CRUD ───────────────────────────────────────────────
+function openAdd() {
+  document.getElementById('m-edit-id').value = '';
+  document.getElementById('match-modal-title').textContent = 'Ajouter un match';
+  document.getElementById('m-teamA').value = '';
+  document.getElementById('m-teamB').value = '';
+  document.getElementById('m-date').value = '';
+  document.getElementById('m-time').value = '';
+  document.getElementById('m-phase').value = 'Groupe A';
+  document.getElementById('m-type').value = 'group';
+  show('ov-match');
+  setTimeout(() => document.getElementById('m-teamA').focus(), 100);
+}
+
+function openEdit(id) {
+  const m = S.data.matches.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('m-edit-id').value = id;
+  document.getElementById('match-modal-title').textContent = 'Modifier le match';
+  document.getElementById('m-teamA').value = m.teamA||'';
+  document.getElementById('m-teamB').value = m.teamB||'';
+  document.getElementById('m-date').value = m.date||'';
+  document.getElementById('m-time').value = m.time||'';
+  document.getElementById('m-phase').value = m.phase||'Groupe A';
+  document.getElementById('m-type').value = m.type||'group';
+  show('ov-match');
+}
+
+function saveMatch() {
+  const id = document.getElementById('m-edit-id').value;
+  const tA = document.getElementById('m-teamA').value.trim();
+  const tB = document.getElementById('m-teamB').value.trim();
+  if (!tA||!tB) { toast('Les noms des équipes sont requis','err'); return; }
+
+  const type = document.getElementById('m-type').value;
+  const isKO = type === 'ko';
+
+  if (id) {
+    const idx = S.data.matches.findIndex(m => m.id === id);
+    if (idx<0) return;
+    const ex = S.data.matches[idx];
+    const prevKO = ex.type === 'ko';
+    S.data.matches[idx] = {
+      ...ex, teamA:tA, teamB:tB,
+      date:document.getElementById('m-date').value,
+      time:document.getElementById('m-time').value,
+      phase:document.getElementById('m-phase').value,
+      type
+    };
+    // Sync outcomes count if type changed
+    if (isKO && !prevKO && ex.outcomes.length === 3) {
+      S.data.matches[idx].outcomes = [ex.outcomes[0], ex.outcomes[2]];
+    } else if (!isKO && prevKO && ex.outcomes.length === 2) {
+      S.data.matches[idx].outcomes = [
+        ex.outcomes[0],
+        {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
+        ex.outcomes[1]
+      ];
+    }
+    toast('Match modifié','ok');
+  } else {
+    const outs = isKO
+      ? [{id:uid(),label:`Victoire ${tA}`,points:'',fairOdd:'',popularity:''},
+         {id:uid(),label:`Victoire ${tB}`,points:'',fairOdd:'',popularity:''}]
+      : [{id:uid(),label:`Victoire ${tA}`,points:'',fairOdd:'',popularity:''},
+         {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
+         {id:uid(),label:`Victoire ${tB}`,points:'',fairOdd:'',popularity:''}];
+    S.data.matches.push({
+      id:uid(), teamA:tA, teamB:tB,
+      date:document.getElementById('m-date').value,
+      time:document.getElementById('m-time').value,
+      phase:document.getElementById('m-phase').value,
+      type, outcomes:outs
+    });
+    toast('Match ajouté','ok');
+  }
+
+  save(); renderAdmin(); renderPublic();
+  hide('ov-match');
+}
+
+function delMatch(id) {
+  if (!confirm('Supprimer ce match ?')) return;
+  S.data.matches = S.data.matches.filter(m => m.id !== id);
+  save(); renderAdmin(); renderPublic();
+  toast('Match supprimé','ok');
+}
+
+// ─── AUTH ─────────────────────────────────────────────────────
+function tryLogin() {
+  const pwd = document.getElementById('pwd-input').value;
+  if (pwd === S.data.adminPassword) {
+    // Switch to admin localStorage data
+    S.data = loadAdminData();
+    S.isAdmin = true;
+    hide('ov-login');
+    switchView('admin');
+    updateToggle();
+    renderAdmin();
+    renderPublic();
+  } else {
+    document.getElementById('pwd-err').style.display = 'block';
+    document.getElementById('pwd-input').select();
+  }
+}
+
+function logout() {
+  S.isAdmin = false;
+  S.data = loadData();
+  switchView('public');
+  updateToggle();
+  renderPublic();
+}
+
+function updateToggle() {
+  const b = document.getElementById('btn-admin-toggle');
+  b.textContent = S.isAdmin ? '🔓' : '🔐';
+  b.title = S.isAdmin ? 'Déconnexion admin' : 'Accès admin (Ctrl+Alt+A)';
+}
+
+// ─── VIEWS ────────────────────────────────────────────────────
+function switchView(v) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('on'));
+  document.getElementById('view-'+v).classList.add('on');
+}
+
+// ─── EXPORT / IMPORT ─────────────────────────────────────────
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(S.data,null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'mpp2026.json'; a.click(); URL.revokeObjectURL(a.href);
+  toast('Fichier exporté','ok');
+}
+
+function importJSON(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      if (!d.matches) throw 0;
+      d.adminPassword = S.data.adminPassword;
+      S.data = d; save(); renderAdmin(); renderPublic();
+      toast('Données importées','ok');
+    } catch { toast('Fichier JSON invalide','err'); }
+  };
+  r.readAsText(file);
+}
+
+function copyShare() {
+  const url = shareURL();
+  navigator.clipboard.writeText(url).then(() => toast('Lien copié !','ok')).catch(() => {
+    const t = document.createElement('textarea'); t.value=url;
+    document.body.appendChild(t); t.select(); document.execCommand('copy');
+    t.remove(); toast('Lien copié !','ok');
+  });
+}
+
+// ─── PASSWORD CHANGE ─────────────────────────────────────────
+function savePwd() {
+  const old = document.getElementById('old-pwd').value;
+  const nw = document.getElementById('new-pwd').value;
+  const cf = document.getElementById('conf-pwd').value;
+  const err = document.getElementById('pwd-chg-err');
+  err.style.display = 'none';
+  if (old !== S.data.adminPassword) { err.textContent='Ancien mot de passe incorrect.'; err.style.display='block'; return; }
+  if (!nw) { err.textContent='Le nouveau mot de passe ne peut pas être vide.'; err.style.display='block'; return; }
+  if (nw !== cf) { err.textContent='Les mots de passe ne correspondent pas.'; err.style.display='block'; return; }
+  S.data.adminPassword = nw; save(); hide('ov-pwd');
+  toast('Mot de passe modifié','ok');
+}
+
+// ─── OVERLAY HELPERS ─────────────────────────────────────────
+function show(id) { document.getElementById(id).classList.remove('off'); }
+function hide(id) { document.getElementById(id).classList.add('off'); }
+
+// ─── TOAST ───────────────────────────────────────────────────
+function toast(msg, type='') {
+  const c = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast' + (type?' '+type:'');
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => { el.style.animation='tout .3s forwards'; setTimeout(()=>el.remove(),300); }, 2700);
+}
+
+// ─── LISTENERS ───────────────────────────────────────────────
+function setup() {
+  // Admin toggle
+  document.getElementById('btn-admin-toggle').addEventListener('click', () => {
+    if (S.isAdmin) logout(); else { show('ov-login'); document.getElementById('pwd-input').value=''; document.getElementById('pwd-err').style.display='none'; setTimeout(()=>document.getElementById('pwd-input').focus(),100); }
+  });
+
+  // Login
+  document.getElementById('btn-login-ok').addEventListener('click', tryLogin);
+  document.getElementById('btn-login-cancel').addEventListener('click', () => hide('ov-login'));
+  document.getElementById('pwd-input').addEventListener('keydown', e => { if (e.key==='Enter') tryLogin(); if (e.key==='Escape') hide('ov-login'); });
+
+  // Match modal
+  document.getElementById('btn-add-match').addEventListener('click', openAdd);
+  document.getElementById('btn-match-save').addEventListener('click', saveMatch);
+  document.getElementById('btn-match-cancel').addEventListener('click', () => hide('ov-match'));
+  document.getElementById('btn-match-close').addEventListener('click', () => hide('ov-match'));
+  document.getElementById('ov-match').addEventListener('click', e => { if (e.target===e.currentTarget) hide('ov-match'); });
+  document.getElementById('m-teamB').addEventListener('keydown', e => { if (e.key==='Enter') saveMatch(); });
+
+  // Share / export / import
+  document.getElementById('btn-share').addEventListener('click', copyShare);
+  document.getElementById('btn-export').addEventListener('click', exportJSON);
+  document.getElementById('btn-import').addEventListener('click', () => document.getElementById('file-import').click());
+  document.getElementById('file-import').addEventListener('change', e => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
+
+  // Password change
+  document.getElementById('btn-chg-pwd').addEventListener('click', () => { document.getElementById('old-pwd').value=''; document.getElementById('new-pwd').value=''; document.getElementById('conf-pwd').value=''; document.getElementById('pwd-chg-err').style.display='none'; show('ov-pwd'); });
+  document.getElementById('btn-pwd-save').addEventListener('click', savePwd);
+  document.getElementById('btn-pwd-cancel').addEventListener('click', () => hide('ov-pwd'));
+  document.getElementById('btn-pwd-close').addEventListener('click', () => hide('ov-pwd'));
+
+  // Keyboard shortcut
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.altKey && e.key.toLowerCase()==='a') {
+      if (S.isAdmin) logout(); else document.getElementById('btn-admin-toggle').click();
+    }
+  });
+}
+
+// ─── INIT ────────────────────────────────────────────────────
+S.data = loadData();
+setup();
+renderPublic();
+if (new URLSearchParams(location.search).has('admin')) {
+  show('ov-login');
+  setTimeout(() => document.getElementById('pwd-input').focus(), 200);
+}
+</script>
+</body>
+</html>
