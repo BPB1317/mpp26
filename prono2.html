@@ -180,17 +180,6 @@ a{color:var(--g)}
       <div class="sl-item" style="color:var(--muted)">mult : ×1 groupes · ×2 16e/8e · ×3 QF · ×4 ½F+3e · ×5 Finale</div>
     </div>
 
-    <!-- Niveau de risque -->
-    <div class="risk-bar">
-      <span class="rlbl">Niveau par défaut :</span>
-      <div class="risk-btns">
-        <button class="risk-btn lv1" data-level="1">🛡 Sûr</button>
-        <button class="risk-btn lv2 on" data-level="2">⚖ Standard</button>
-        <button class="risk-btn lv3" data-level="3">🔥 Risqué</button>
-      </div>
-      <span id="risk-desc" class="risk-formula">argmax( EV ) — maximise l'espérance de gain</span>
-    </div>
-
     <div class="tcard">
       <div class="tcard-head">📋 Tableau des recommandations</div>
       <div id="public-table"></div>
@@ -289,7 +278,11 @@ const PHASE_COLORS = {
   'Seizièmes':'#0369A1','Huitièmes':'#1D4ED8','Quarts de finale':'#DC2626',
   'Demi-finales':'#7C3AED','Finale':'#D97706','Match 3e place':'#6B7280'
 };
-
+const RL_META = {
+  1:{ label:'🛡 Sûr',     desc:'argmax( P(points) ) — maximise la probabilité de marquer quelque chose. Idéal en tête.' },
+  2:{ label:'⚖ Standard', desc:'argmax( EV ) — maximise l\'espérance de gain. Optimal sur la durée.' },
+  3:{ label:'🔥 Risqué',  desc:'argmax( P(exact) × pts_exact ) — vise le jackpot du score parfait. Idéal pour un comeback.' },
+};
 
 // ─── CALENDAR ────────────────────────────────────────────────
 const PC = [
@@ -1064,15 +1057,6 @@ function setup() {
   document.getElementById('btn-export').addEventListener('click', exportJSON);
   document.getElementById('btn-import').addEventListener('click', ()=>document.getElementById('file-import').click());
   document.getElementById('file-import').addEventListener('change', e=>{ if(e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
-  document.querySelectorAll('.risk-btn').forEach(btn => {
-    btn.addEventListener('click', ()=>{
-      S.riskLevel=parseInt(btn.dataset.level);
-      S.matchRiskLevels={};
-      document.querySelectorAll('.risk-btn').forEach(b=>b.classList.toggle('on',parseInt(b.dataset.level)===S.riskLevel));
-      document.getElementById('risk-desc').textContent=RL_META[S.riskLevel].desc;
-      renderPublic();
-    });
-  });
   document.addEventListener('keydown', e=>{ if(e.ctrlKey&&e.altKey&&e.key.toLowerCase()==='a') document.getElementById('btn-admin-toggle').click(); });
 }
 
