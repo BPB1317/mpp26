@@ -81,6 +81,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-seri
 
 /* ADMIN MATCH CARDS */
 .amlist{display:flex;flex-direction:column;gap:14px}
+.share-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:#ECFDF5;border:1.5px solid #6EE7B7;border-radius:var(--r);margin-bottom:18px}
+.share-bar-lbl{font-size:.78rem;font-weight:600;color:#065F46;white-space:nowrap}
+.share-url-inp{flex:1;min-width:0;padding:6px 10px;border:1.5px solid #6EE7B7;border-radius:8px;font-size:.75rem;background:#fff;color:var(--text);cursor:pointer;font-family:monospace}
 .amcard{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
 .amcard-hdr{display:flex;align-items:center;gap:10px;padding:13px 18px;background:#F8F9FA;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
 .amcard-hdr:hover{background:#F0F2F5}
@@ -223,15 +226,50 @@ select.inp{cursor:pointer}
     <div class="atb">
       <h2>⚙️ Administration des matchs</h2>
       <button class="btn btn-ok" id="btn-add-match">+ Ajouter un match</button>
-      <button class="btn btn-outline" id="btn-share">🔗 Copier le lien</button>
+      <button class="btn btn-ok" id="btn-sync-cfg">☁️ Lien stable</button>
+      <span id="sync-badge" style="font-size:.75rem;font-weight:700;cursor:default" title="Statut synchronisation cloud"></span>
       <button class="btn btn-ghost" id="btn-export">📥 Exporter JSON</button>
       <button class="btn btn-ghost" id="btn-import">📤 Importer JSON</button>
       <button class="btn btn-ghost" id="btn-chg-pwd">🔑 Mot de passe</button>
       <button class="btn btn-primary" id="btn-load-cal">📅 Charger calendrier CDM 2026</button>
     </div>
+    <div class="share-bar">
+      <span class="share-bar-lbl">🔗 Lien à partager avec ton ami :</span>
+      <input class="share-url-inp" id="share-url-inp" type="text" readonly placeholder="Cliquez sur « Copier le lien » pour générer…" onclick="this.select()">
+      <button class="btn btn-ok" id="btn-share2" style="white-space:nowrap">📋 Copier</button>
+    </div>
     <div class="amlist" id="admin-list"></div>
   </div>
 
+</div>
+
+<!-- ===== SYNC CLOUD OVERLAY ===== -->
+<div class="overlay off" id="ov-sync">
+  <div class="modal-card" style="max-width:520px">
+    <button class="modal-close" id="btn-sync-close">✕</button>
+    <h3 style="margin-bottom:4px">☁️ Lien stable (sync cloud)</h3>
+    <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px">Tes données sont stockées sur <strong>JSONBin.io</strong> (gratuit). L'URL devient stable — tu la partages <em>une seule fois</em>, elle ne change plus jamais.</p>
+    <ol style="font-size:.82rem;color:var(--text);line-height:1.8;margin:0 0 14px 16px;padding:0">
+      <li>Crée un compte gratuit sur <strong>jsonbin.io</strong></li>
+      <li>Dans ton profil → copie ta <strong>Master Key</strong></li>
+      <li>Colle-la ci-dessous et clique <strong>Initialiser</strong></li>
+    </ol>
+    <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Master Key JSONBin</label>
+    <input class="inp" id="sync-api-key" type="password" placeholder="$2a$10$…" style="width:100%;margin-bottom:10px;font-family:monospace">
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn btn-ok" id="btn-sync-init">🚀 Initialiser (créer le bin)</button>
+      <button class="btn btn-outline" id="btn-sync-push">📤 Pousser maintenant</button>
+    </div>
+    <div id="sync-result" style="display:none;padding:14px;background:#F0FDF4;border-radius:10px;border:1.5px solid #86EFAC">
+      <div style="font-size:.8rem;font-weight:700;color:#065F46;margin-bottom:8px">✅ Lien stable (ne changera plus) :</div>
+      <div style="display:flex;gap:8px">
+        <input class="inp" id="sync-share-url" type="text" readonly onclick="this.select()" style="flex:1;font-size:.72rem;font-family:monospace">
+        <button class="btn btn-ok" id="btn-sync-copy">Copier</button>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:6px">Partage ce lien une fois à ton ami. Toutes tes sauvegardes s'y reflèteront automatiquement.</div>
+    </div>
+    <div id="sync-bin-status" style="margin-top:10px;font-size:.8rem"></div>
+  </div>
 </div>
 
 <!-- ===== LOGIN OVERLAY ===== -->
@@ -485,8 +523,27 @@ function loadAdminData() {
   return defData();
 }
 
+let _hashTimer = null;
 function save() {
-  if (S.isAdmin) S.data.lastUpdated = new Date().toISOString();
+  if (S.isAdmin) {
+    S.data.lastUpdated = new Date().toISOString();
+    clearTimeout(_hashTimer);
+    _hashTimer = setTimeout(() => {
+      const conf = loadConf();
+      if (conf.binId && conf.apiKey) {
+        pushToBin(true);
+        const url = stableURL(conf.binId);
+        history.replaceState(null,'',url);
+        const inp = document.getElementById('share-url-inp');
+        if (inp) inp.value = url;
+      } else {
+        const url = shareURL();
+        history.replaceState(null,'',url);
+        const inp = document.getElementById('share-url-inp');
+        if (inp) inp.value = url;
+      }
+    }, 1500);
+  }
   try { localStorage.setItem(SK, JSON.stringify(S.data)); } catch(e) { toast('Erreur sauvegarde','err'); }
 }
 
@@ -596,7 +653,7 @@ function renderPublic() {
   // Main table
   const tbl = document.getElementById('public-table');
   if (!matches.length) {
-    tbl.innerHTML = '<div class="empty"><div class="empty-ico">📊</div><h3>Aucun match configuré</h3><p>Les pronostics apparaîtront ici une fois les données saisies.</p></div>';
+    tbl.innerHTML = '<div class="empty"><div class="empty-ico">🔗</div><h3>Aucune donnée</h3><p>Demande à l\'admin le <strong>lien de partage à jour</strong> (URL avec <code>#data=</code>). Le lien de base ne suffit pas.</p></div>';
     return;
   }
 
@@ -867,6 +924,15 @@ function tryLogin() {
     updateToggle();
     renderAdmin();
     renderPublic();
+    const conf = loadConf();
+    const shareInp = document.getElementById('share-url-inp');
+    if (conf.binId) {
+      const url = stableURL(conf.binId);
+      if (shareInp) shareInp.value = url;
+      updateSyncBadge('ok');
+    } else {
+      if (shareInp) shareInp.value = shareURL();
+    }
   } else {
     document.getElementById('pwd-err').style.display = 'block';
     document.getElementById('pwd-input').select();
@@ -917,6 +983,9 @@ function importJSON(file) {
 
 function copyShare() {
   const url = shareURL();
+  history.replaceState(null, '', url);
+  const inp = document.getElementById('share-url-inp');
+  if (inp) inp.value = url;
   navigator.clipboard.writeText(url).then(() => toast('Lien copié !','ok')).catch(() => {
     const t = document.createElement('textarea'); t.value=url;
     document.body.appendChild(t); t.select(); document.execCommand('copy');
@@ -973,7 +1042,19 @@ function setup() {
   document.getElementById('m-teamB').addEventListener('keydown', e => { if (e.key==='Enter') saveMatch(); });
 
   // Share / export / import
-  document.getElementById('btn-share').addEventListener('click', copyShare);
+  document.getElementById('btn-share2').addEventListener('click', copyShare);
+  document.getElementById('btn-sync-cfg').addEventListener('click', openSyncModal);
+  document.getElementById('btn-sync-close').addEventListener('click', () => hide('ov-sync'));
+  document.getElementById('ov-sync').addEventListener('click', e => { if (e.target===e.currentTarget) hide('ov-sync'); });
+  document.getElementById('btn-sync-init').addEventListener('click', initBin);
+  document.getElementById('btn-sync-push').addEventListener('click', () => pushToBin(false));
+  document.getElementById('btn-sync-copy').addEventListener('click', () => {
+    const url = document.getElementById('sync-share-url').value;
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(()=>toast('Lien stable copié !','ok')).catch(()=>{
+      const t=document.createElement('textarea');t.value=url;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('Lien stable copié !','ok');
+    });
+  });
   document.getElementById('btn-export').addEventListener('click', exportJSON);
   document.getElementById('btn-import').addEventListener('click', () => document.getElementById('file-import').click());
   document.getElementById('file-import').addEventListener('change', e => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
@@ -1045,14 +1126,125 @@ function toggleDetail(id) {
   if (ico) { ico.textContent = open ? '▼' : '▲'; ico.style.color = open ? 'var(--muted)' : 'var(--g)'; }
 }
 
-// ─── INIT ────────────────────────────────────────────────────
-S.data = loadData();
-setup();
-renderPublic();
-if (new URLSearchParams(location.search).has('admin')) {
-  show('ov-login');
-  setTimeout(() => document.getElementById('pwd-input').focus(), 200);
+// ─── CLOUD SYNC (JSONBin) ────────────────────────────────────
+const JBIN_URL = 'https://api.jsonbin.io/v3/b';
+const CONF_SK  = 'mpp2026-conf';
+
+function loadConf() {
+  try { const s = localStorage.getItem(CONF_SK); if (s) return JSON.parse(s); } catch(e) {}
+  return { apiKey:'', binId:'' };
 }
+function saveConf(c) { try { localStorage.setItem(CONF_SK, JSON.stringify(c)); } catch(e) {} }
+function stableURL(binId) { return location.origin + location.pathname + '#bin=' + binId; }
+
+function updateSyncBadge(status) {
+  const el = document.getElementById('sync-badge');
+  if (!el) return;
+  if (status==='ok')      { el.textContent='☁ ✓'; el.style.color='var(--ok)'; }
+  else if (status==='syncing') { el.textContent='☁ …'; el.style.color='#D97706'; }
+  else                    { el.textContent='☁ ✗'; el.style.color='var(--bad)'; }
+}
+
+async function pushToBin(silent) {
+  const conf = loadConf();
+  if (!conf.apiKey || !conf.binId) return;
+  updateSyncBadge('syncing');
+  try {
+    const res = await fetch(`${JBIN_URL}/${conf.binId}`, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':conf.apiKey},
+      body: JSON.stringify(S.data)
+    });
+    if (!res.ok) throw new Error(res.status);
+    updateSyncBadge('ok');
+    if (!silent) toast('Synchronisé ✓','ok');
+  } catch(e) {
+    updateSyncBadge('err');
+    if (!silent) toast('Erreur sync : '+e.message,'err');
+  }
+}
+
+async function loadFromBin(binId) {
+  const res = await fetch(`${JBIN_URL}/${binId}/latest`);
+  if (!res.ok) throw new Error(res.status);
+  const d = await res.json();
+  return d.record;
+}
+
+async function initBin() {
+  const key = document.getElementById('sync-api-key').value.trim();
+  if (!key) { toast('Clé API manquante','err'); return; }
+  const conf = loadConf();
+  conf.apiKey = key;
+  saveConf(conf);
+  const statusEl = document.getElementById('sync-bin-status');
+  statusEl.innerHTML = '<span style="color:#D97706">Création du bin en cours…</span>';
+  try {
+    const res = await fetch(JBIN_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Master-Key':key,'X-Bin-Name':'MPP 2026','X-Bin-Private':'false'},
+      body: JSON.stringify(S.data)
+    });
+    if (!res.ok) { const t=await res.text(); throw new Error(res.status+' — '+t); }
+    const d = await res.json();
+    conf.binId = d.metadata.id;
+    saveConf(conf);
+    const url = stableURL(conf.binId);
+    history.replaceState(null,'',url);
+    document.getElementById('sync-share-url').value = url;
+    document.getElementById('sync-result').style.display = '';
+    const inp = document.getElementById('share-url-inp');
+    if (inp) inp.value = url;
+    statusEl.innerHTML = '<span style="color:var(--ok)">✅ Bin créé — ID : '+esc(conf.binId)+'</span>';
+    updateSyncBadge('ok');
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:var(--bad)">Erreur : '+esc(e.message)+'</span>';
+    updateSyncBadge('err');
+  }
+}
+
+function openSyncModal() {
+  const conf = loadConf();
+  const keyInp = document.getElementById('sync-api-key');
+  if (keyInp && conf.apiKey) keyInp.value = conf.apiKey;
+  if (conf.binId) {
+    const url = stableURL(conf.binId);
+    document.getElementById('sync-share-url').value = url;
+    document.getElementById('sync-result').style.display = '';
+    document.getElementById('sync-bin-status').innerHTML =
+      '<span style="color:var(--ok)">Bin configuré — ID : '+esc(conf.binId)+'</span>';
+  } else {
+    document.getElementById('sync-result').style.display = 'none';
+    document.getElementById('sync-bin-status').textContent = '';
+  }
+  show('ov-sync');
+}
+
+// ─── INIT ────────────────────────────────────────────────────
+(async () => {
+  const h = location.hash;
+  if (h.startsWith('#bin=')) {
+    const binId = h.slice(5);
+    const tbl = document.getElementById('public-table');
+    if (tbl) tbl.innerHTML = '<div class="empty"><div class="empty-ico" style="font-size:2rem">⏳</div><h3>Chargement…</h3><p>Récupération des données en cours.</p></div>';
+    try {
+      S.data = await loadFromBin(binId);
+      const conf = loadConf();
+      if (!conf.binId) { conf.binId = binId; saveConf(conf); }
+    } catch(e) {
+      S.data = defData();
+      toast('Impossible de charger les données cloud','err');
+    }
+  } else {
+    S.data = loadData();
+  }
+  setup();
+  renderPublic();
+  if (new URLSearchParams(location.search).has('admin')) {
+    show('ov-login');
+    setTimeout(() => document.getElementById('pwd-input').focus(), 200);
+  }
+})();
 </script>
 </body>
 </html>
