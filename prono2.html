@@ -204,6 +204,7 @@ a{color:var(--g)}
       <button class="btn btn-primary" id="btn-load-cal">📅 Charger CDM 2026</button>
       <button class="btn btn-ok" id="btn-sync-cfg">☁️ Lien stable</button>
       <span id="sync-badge" style="font-size:.75rem;font-weight:700;cursor:default" title="Statut sync cloud"></span>
+      <button class="btn btn-outline" id="btn-toggle-mode" title="Basculer entre saisie de cotes et de probabilités">% Probas</button>
       <button class="btn btn-ghost" id="btn-export">📥 Export JSON</button>
       <button class="btn btn-ghost" id="btn-import">📤 Import JSON</button>
     </div>
@@ -403,7 +404,7 @@ const PC = [
 ];
 
 // ─── STATE ───────────────────────────────────────────────────
-const S = { data:null, isAdmin:false, riskLevel:2, matchRiskLevels:{} };
+const S = { data:null, isAdmin:false, riskLevel:2, matchRiskLevels:{}, inputMode:'prob' };
 
 // ─── DATA ────────────────────────────────────────────────────
 function defData() { return { version:1, adminPassword:DEF_PWD, matches:[] }; }
@@ -654,9 +655,13 @@ function adminCard(m) {
         cells += `<td><div class="gna"></div></td>`;
       } else {
         const sc = `${h}-${a}`;
-        const val = probs[sc] || '';
+        const storedProb = parseFloat(probs[sc]||0);
+        const val = S.inputMode === 'odds'
+          ? (storedProb > 0 ? (100/storedProb).toFixed(2) : '')
+          : (storedProb > 0 ? storedProb : '');
+        const ph = S.inputMode === 'odds' ? '2.00' : '0';
         const cls = h === a ? 'gdraw' : h > a ? 'ghome' : 'gaway';
-        cells += `<td class="${cls}"><input class="pinp${val?' has-val':''}" type="number" min="0" max="100" step="0.1" data-mid="${m.id}" data-score="${sc}" value="${val}" placeholder="0"></td>`;
+        cells += `<td class="${cls}"><input class="pinp${storedProb>0?' has-val':''}" type="number" min="0" step="${S.inputMode==='odds'?'0.01':'0.1'}" data-mid="${m.id}" data-score="${sc}" value="${val}" placeholder="${ph}"></td>`;
       }
     }
     gridRows += `<tr>${cells}</tr>`;
@@ -749,9 +754,15 @@ function onProbInp(e) {
   const match = S.data.matches.find(m => m.id === mid);
   if (!match) return;
   if (!match.probs) match.probs = {};
-  const val = parseFloat(e.target.value);
-  if (!val || val <= 0) { delete match.probs[score]; e.target.classList.remove('has-val'); }
-  else { match.probs[score] = val; e.target.classList.add('has-val'); }
+  const raw = parseFloat(e.target.value);
+  let prob;
+  if (S.inputMode === 'odds') {
+    prob = (raw > 1) ? parseFloat((100 / raw).toFixed(4)) : 0;
+  } else {
+    prob = (raw > 0) ? raw : 0;
+  }
+  if (!prob) { delete match.probs[score]; e.target.classList.remove('has-val'); }
+  else { match.probs[score] = prob; e.target.classList.add('has-val'); }
   // Update total indicators
   const tot = probTotal(match.probs);
   const totTxt = tot.toFixed(1)+'%';
@@ -811,6 +822,34 @@ function refreshEVTable(mid, match) {
       </tr>`;
     }).join('')}</tbody>
   </table>`;
+}
+
+// ─── INPUT MODE TOGGLE ───────────────────────────────────────
+function toggleInputMode() {
+  S.inputMode = S.inputMode === 'prob' ? 'odds' : 'prob';
+  const btn = document.getElementById('btn-toggle-mode');
+  if (btn) {
+    btn.textContent = S.inputMode === 'odds' ? '1/x Cotes' : '% Probas';
+    btn.classList.toggle('btn-ok', S.inputMode === 'odds');
+    btn.classList.toggle('btn-outline', S.inputMode === 'prob');
+  }
+  // Update all visible inputs in-place (no full re-render, cards stay open)
+  document.querySelectorAll('.pinp').forEach(inp => {
+    const { mid, score } = inp.dataset;
+    if (!mid || !score) return;
+    const match = S.data.matches.find(m => m.id === mid);
+    if (!match) return;
+    const p = parseFloat(match.probs?.[score]||0);
+    if (S.inputMode === 'odds') {
+      inp.value = p > 0 ? (100/p).toFixed(2) : '';
+      inp.placeholder = '2.00';
+      inp.step = '0.01';
+    } else {
+      inp.value = p > 0 ? p : '';
+      inp.placeholder = '0';
+      inp.step = '0.1';
+    }
+  });
 }
 
 // ─── PROB ACTIONS ─────────────────────────────────────────────
@@ -1025,6 +1064,7 @@ function setup() {
     });
   });
   document.getElementById('btn-share2').addEventListener('click', copyShare);
+  document.getElementById('btn-toggle-mode').addEventListener('click', toggleInputMode);
   document.getElementById('btn-export').addEventListener('click', exportJSON);
   document.getElementById('btn-import').addEventListener('click', ()=>document.getElementById('file-import').click());
   document.getElementById('file-import').addEventListener('change', e=>{ if(e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
