@@ -526,16 +526,10 @@ function renderPublic() {
   const rows = matches.map(m => {
     const probs = m.probs || {};
     const phase = m.phase || '';
-    const ml = (S.matchRiskLevels||{})[m.id] || S.riskLevel;
-    const best = bestBet(probs, phase, ml);
+    const best = bestBet(probs, phase, 2);
     const pc = PHASE_COLORS[phase] || '#6B7280';
     const mult = getMult(phase);
     const multCls = `mx${mult}`;
-
-    const rlBtns = [1,2,3].map(l => {
-      const icons = {1:'🛡',2:'⚖',3:'🔥'};
-      return `<button class="mr-btn lv${l}${ml===l?' on':''}" onclick="event.stopPropagation();setMatchRL('${m.id}',${l})" title="${RL_META[l].desc}">${icons[l]}</button>`;
-    }).join('');
 
     // EV of best bet
     const bestEV = best ? betEV(best.bet, probs, phase) : null;
@@ -572,14 +566,12 @@ function renderPublic() {
 
     return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
       <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''} · <span style="color:${pc};font-weight:600;font-size:.7rem">${esc(phase)}</span> <span class="mult-badge ${multCls}" style="padding:1px 5px;font-size:.62rem">×${mult}</span></div></td>
-      ${m.pickscore ? `<td><span class="score-badge">${esc(m.pickscore)}</span></td>` : '<td><span style="color:var(--muted);font-size:.78rem">—</span></td>'}
-      <td onclick="event.stopPropagation()"><div class="mr-btns">${rlBtns}</div></td>
       <td>${best ? `<code style="font-weight:700;font-size:.88rem">${best.bet}</code>` : '<span style="color:var(--muted)">—</span>'}</td>
       <td class="col-ev">${evBadge}</td>
       <td style="text-align:center;font-size:.75rem;user-select:none;color:var(--muted);width:28px" id="tog-${m.id}">▼</td>
     </tr>
     <tr class="det-row" id="detail-${m.id}" style="display:none">
-      <td colspan="6" style="padding:2px 14px 12px 14px">
+      <td colspan="4" style="padding:2px 14px 12px 14px">
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:#F0F2F5">
             <th style="padding:6px 12px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase">Score à parier</th>
@@ -596,8 +588,6 @@ function renderPublic() {
   tbl.innerHTML = `<table class="tbl">
     <thead><tr>
       <th>Match</th>
-      <th>Score conseillé</th>
-      <th>Niveau</th>
       <th>Pronostic recommandé</th>
       <th class="col-ev">EV</th>
       <th style="width:28px"></th>
