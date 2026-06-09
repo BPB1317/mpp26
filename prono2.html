@@ -555,7 +555,7 @@ function renderPublic() {
         : isHome
         ? `<span style="color:var(--ok);font-size:.68rem">${esc(m.teamA)}</span>`
         : `<span style="color:var(--bad);font-size:.68rem">${esc(m.teamB)}</span>`;
-      const isBest = best && b.bet === best.bet && ml === 2;
+      const isBest = best && b.bet === best.bet;
       return `<tr class="${isBest?'det-best':''}">
         <td style="padding:5px 12px;font-weight:${i===0?700:400}">${i===0?'⭐ ':''}<code style="font-size:.82rem">${b.bet}</code></td>
         <td style="padding:5px 12px">${tag}</td>
