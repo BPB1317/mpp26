@@ -703,6 +703,11 @@ function adminCard(m) {
         </div>
       </div>
 
+      <div class="ev-section" style="margin-top:12px">
+        <div class="ev-section-title">Matrice EV — score à parier</div>
+        <div id="ev-grid-${m.id}">${buildEVGrid(probs, phase)}</div>
+      </div>
+
       <div class="ev-section">
         <div class="ev-section-title">Meilleurs picks par EV</div>
         <div id="ev-table-${m.id}">
@@ -726,6 +731,40 @@ function adminCard(m) {
       </div>
     </div>
   </div>`;
+}
+
+// ─── EV GRID ─────────────────────────────────────────────────
+function buildEVGrid(probs, phase) {
+  const tot = probTotal(probs);
+  if (tot <= 0) return '<div style="color:var(--muted);font-size:.8rem;padding:6px">Entrez des probabilités pour voir la matrice.</div>';
+  let maxEV = 0;
+  const evs = {};
+  for (let h = 0; h <= 8; h++)
+    for (let a = 0; a <= 8; a++)
+      if (h + a <= 8) { const ev = betEV(`${h}-${a}`, probs, phase) || 0; evs[`${h}-${a}`] = ev; if (ev > maxEV) maxEV = ev; }
+  let html = `<tr><td class="gh"></td>${Array.from({length:9},(_,a)=>`<td class="gh">&minus;${a}</td>`).join('')}</tr>`;
+  for (let h = 0; h <= 8; h++) {
+    let cells = `<td class="gh">${h}&minus;</td>`;
+    for (let a = 0; a <= 8; a++) {
+      if (h + a > 8) { cells += `<td><div class="gna"></div></td>`; }
+      else {
+        const sc = `${h}-${a}`;
+        const ev = evs[sc];
+        const t = maxEV > 0 ? ev / maxEV : 0;
+        const alpha = (0.1 + t * 0.75).toFixed(2);
+        const bg = h === a ? `rgba(59,130,246,${alpha})` : h > a ? `rgba(34,197,94,${alpha})` : `rgba(239,68,68,${alpha})`;
+        const fw = t > 0.75 ? 700 : 500;
+        const col = t > 0.55 ? '#fff' : '#1F2937';
+        cells += `<td style="background:${bg}"><div style="width:36px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:${fw};color:${col}">${ev.toFixed(2)}</div></td>`;
+      }
+    }
+    html += `<tr>${cells}</tr>`;
+  }
+  return `<div class="prob-wrap"><table class="prob-grid"><tbody>${html}</tbody></table></div>`;
+}
+function refreshEVGrid(mid, match) {
+  const el = document.getElementById(`ev-grid-${mid}`);
+  if (el) el.innerHTML = buildEVGrid(match.probs || {}, match.phase || '');
 }
 
 // ─── INPUT HANDLERS ──────────────────────────────────────────
@@ -752,8 +791,9 @@ function onProbInp(e) {
     const el = document.getElementById(pfx+mid);
     if (el) { el.textContent = totTxt; el.className = `prob-total-badge ${totCls}`; }
   });
-  // Refresh EV table
+  // Refresh EV table and grid
   refreshEVTable(mid, match);
+  refreshEVGrid(mid, match);
   save();
   renderPublic();
 }
