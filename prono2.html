@@ -933,11 +933,17 @@ function normalizeProbs(mid) {
   if (!match || !match.probs) return;
   const tot = probTotal(match.probs);
   if (tot <= 0) return;
-  ALL_SCORES.forEach(sc => {
-    if (match.probs[sc]) match.probs[sc] = parseFloat((match.probs[sc]/tot*100).toFixed(2));
+  const active = ALL_SCORES.filter(sc => match.probs[sc] > 0);
+  const n = active.length;
+  if (!n) return;
+  const cut = (tot - 100) / n;
+  active.forEach(sc => {
+    const p = match.probs[sc] - cut;
+    if (p > 0) match.probs[sc] = parseFloat(p.toFixed(4));
+    else delete match.probs[sc];
   });
   save(); renderAdmin(); renderPublic();
-  toast('Probabilités normalisées à 100%','ok');
+  toast('Normalisé à 100% (margin ∝ cotes)','ok');
 }
 
 function clearProbs(mid) {
