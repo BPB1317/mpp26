@@ -167,6 +167,19 @@ select.inp{cursor:pointer}
 .det-best td{background:#F0FDF4!important}
 
 /* UTILS */
+/* ── SCORE MATRIX ── */
+.prob-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:6px}
+.prob-grid{border-collapse:collapse;font-size:.62rem}
+.prob-grid .gh{padding:2px 3px;font-size:.58rem;color:var(--muted);font-weight:700;text-align:center;min-width:20px;background:#F9FAFB}
+.prob-grid td{padding:1px}
+.gna{background:#F0F0F0;width:36px;height:26px;border-radius:2px;display:block}
+.ghome{background:#ECFDF5}.gdraw{background:#EFF6FF}.gaway{background:#FEF2F2}
+.pinp{width:36px;height:26px;border:1px solid var(--border);border-radius:3px;text-align:center;font-size:.6rem;padding:0 1px;background:transparent;-moz-appearance:textfield;appearance:textfield}
+.pinp::-webkit-outer-spin-button,.pinp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pinp:focus{border-color:var(--g);outline:none;background:#fff}
+.pinp.has-val{border-color:#6EE7B7;background:#F0FFF4}
+.prob-total-badge{padding:3px 10px;border-radius:6px;font-size:.72rem;font-weight:700}
+.ptb-ok{background:#D1FAE5;color:#065F46}.ptb-over{background:#FEE2E2;color:#991B1B}.ptb-under{background:#FEF3C7;color:#92400E}
 .hidden{display:none!important}
 .d-flex{display:flex}.ai-c{align-items:center}.gap-2{gap:8px}
 @media(max-width:700px){
@@ -493,7 +506,16 @@ const PC = [
 ];
 
 // ─── STATE ───────────────────────────────────────────────────
-const S = { data: null, isAdmin: false, riskLevel: 2, matchRiskLevels: {} };
+const S = { data: null, isAdmin: false, riskLevel: 2, matchRiskLevels: {}, matrixInputModes: {} };
+
+const ALL_SCORES_IDX = [];
+for (let T = 0; T <= 8; T++)
+  for (let h = T; h >= 0; h--)
+    ALL_SCORES_IDX.push(`${h}-${T-h}`);
+
+function mProbTotal(probs) {
+  return ALL_SCORES_IDX.reduce((s, sc) => s + (parseFloat(probs[sc])||0), 0);
+}
 const RL_META = {
   1: { label:'🛡 Sûr',     formula:'argmax( popularité )',          desc:'argmax( popularité ) — suit le field, variance minimale. Idéal quand vous êtes en tête.' },
   2: { label:'⚖ Standard', formula:'argmax( EV − EV_field )',       desc:'argmax( EV − EV_field ) — maximise l\'espérance de gain vs le field sur la durée.' },
@@ -723,13 +745,20 @@ function renderAdmin() {
 
   list.innerHTML = matches.map(m => adminCard(m)).join('');
 
-  list.querySelectorAll('input[data-mid]').forEach(inp => inp.addEventListener('input', onInp));
+  list.querySelectorAll('input[data-mid][data-f]').forEach(inp => inp.addEventListener('input', onInp));
   list.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', e => delMatch(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', e => openEdit(e.currentTarget.dataset.id)));
   list.querySelectorAll('.amcard-hdr').forEach(h => h.addEventListener('click', e => {
     if (e.target.closest('button')) return;
     h.closest('.amcard').classList.toggle('closed');
   }));
+  list.querySelectorAll('.pinp').forEach(inp => inp.addEventListener('input', onMatrixInp));
+  list.querySelectorAll('.btn-matrix-mode').forEach(b => b.addEventListener('click', e => toggleMatrixMode(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-paste-matrix').forEach(b => b.addEventListener('click', e => togglePasteArea(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-paste-apply').forEach(b => b.addEventListener('click', e => applyPasteMatrix(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-paste-cancel').forEach(b => b.addEventListener('click', e => { const a=document.getElementById('paste-area-'+e.currentTarget.dataset.id); if(a) a.style.display='none'; }));
+  list.querySelectorAll('.btn-norm-matrix').forEach(b => b.addEventListener('click', e => normalizeMatrix(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-clear-matrix').forEach(b => b.addEventListener('click', e => clearMatrix(e.currentTarget.dataset.id)));
 }
 
 function adminCard(m) {
@@ -778,8 +807,226 @@ function adminCard(m) {
         <label class="flbl" style="display:flex;align-items:center;gap:6px;margin-bottom:6px">🎯 Pick conseillé <span style="font-weight:400;color:var(--muted)">(score à rentrer dans MPP)</span></label>
         <input type="text" class="inp" data-mid="${m.id}" data-f="pickscore" value="${esc(m.pickscore||'')}" placeholder="Ex: Victoire France 2-1, Match nul 1-1...">
       </div>
+      ${buildMatrixSection(m)}
     </div>
   </div>`;
+}
+
+// ─── SCORE EV ────────────────────────────────────────────────
+function tieredPts(ratio) {
+  if (ratio > 0.30) return 20;
+  if (ratio > 0.20) return 30;
+  if (ratio > 0.05) return 50;
+  if (ratio > 0.005) return 70;
+  return 100;
+}
+function tierLabel(pts) {
+  if (pts === 20) return 'Exact';
+  if (pts === 30) return 'Rare';
+  if (pts === 50) return 'Très rare';
+  if (pts === 70) return 'Mega rare';
+  return 'Ultra rare';
+}
+function getOutcomeFairProb(sc, match) {
+  const [h, a] = sc.split('-').map(Number);
+  const outs = match.outcomes || [];
+  let pOut = null;
+  if (match.type === 'ko') {
+    if (h === a) {
+      const p0 = parseFloat(outs[0]?.fairOdd) > 1 ? 1/parseFloat(outs[0].fairOdd) : 0;
+      const p1 = parseFloat(outs[1]?.fairOdd) > 1 ? 1/parseFloat(outs[1].fairOdd) : 0;
+      pOut = Math.max(0, 1 - p0 - p1);
+    } else {
+      const oc = h > a ? outs[0] : outs[1];
+      const odd = parseFloat(oc?.fairOdd);
+      if (odd > 1) pOut = 1/odd;
+    }
+  } else {
+    const oc = h > a ? outs[0] : h === a ? outs[1] : outs[2];
+    const odd = parseFloat(oc?.fairOdd);
+    if (odd > 1) pOut = 1/odd;
+  }
+  return (pOut !== null && pOut > 0) ? pOut : null;
+}
+function computeScoreEVs(match) {
+  const probs = match.probs || {};
+  const tot = mProbTotal(probs);
+  if (tot <= 0) return null;
+  const evMap = {};
+  for (const sc of ALL_SCORES_IDX) {
+    const pRaw = parseFloat(probs[sc]||0);
+    if (!pRaw) continue;
+    const pS   = pRaw / tot;
+    const pOut = getOutcomeFairProb(sc, match);
+    if (!pOut) continue;
+    const pts   = tieredPts(pS / pOut);
+    evMap[sc]   = { pS, pts, ev: pS * pts };
+  }
+  let fieldEV = 0;
+  for (const d of Object.values(evMap)) fieldEV += d.pS * d.ev;
+  const results = Object.entries(evMap).map(([sc, d]) => ({ score: sc, ...d, relEV: d.ev - fieldEV }));
+  results.sort((a, b) => b.ev - a.ev);
+  return { results, fieldEV };
+}
+function buildScoreEVTable(m) {
+  const r = computeScoreEVs(m);
+  if (!r || !r.results.length) return `<div style="font-size:.74rem;color:var(--muted);margin-top:8px;font-style:italic">Entrez des probabilités et des cotes justes pour voir les recommandations par score.</div>`;
+  const TIER_CLR = {20:'#6B7280',30:'#3B82F6',50:'#059669',70:'#D97706',100:'#DC2626'};
+  const rows = r.results.slice(0, 8).map((d, i) => {
+    const [h, a] = d.score.split('-').map(Number);
+    const isDraw = h === a, isHome = h > a;
+    const resClr = isDraw ? '#1D4ED8' : isHome ? '#065F46' : '#991B1B';
+    const resTxt = isDraw ? 'Nul' : isHome ? esc(m.teamA||'Dom.') : esc(m.teamB||'Ext.');
+    const relCls = d.relEV > 0 ? 'pos' : d.relEV < 0 ? 'neg' : 'neu';
+    return `<tr style="${i===0?'background:#F0FDF4':''}">
+      <td style="padding:4px 8px;font-weight:${i===0?700:400}">${i===0?'⭐ ':''}<code style="font-size:.8rem">${d.score}</code></td>
+      <td style="padding:4px 8px;font-size:.72rem;font-weight:600;color:${resClr}">${resTxt}</td>
+      <td style="padding:4px 8px"><span style="font-size:.67rem;font-weight:700;color:${TIER_CLR[d.pts]}">${tierLabel(d.pts)} (${d.pts}pts)</span></td>
+      <td style="padding:4px 8px;font-weight:700;color:#4338CA;font-size:.8rem">${d.ev.toFixed(3)}</td>
+      <td style="padding:4px 8px"><span class="badge-ev ${relCls}" style="font-size:.67rem;padding:2px 7px">${d.relEV>=0?'+':''}${d.relEV.toFixed(3)}</span></td>
+    </tr>`;
+  }).join('');
+  return `<div style="margin-top:10px">
+    <div style="font-size:.71rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">
+      Meilleurs paris par EV &nbsp;<span style="font-weight:400;font-style:italic;text-transform:none">field EV moy : ${r.fieldEV.toFixed(3)}</span>
+    </div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
+      <thead><tr style="background:#F0F2F5">
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Score</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Résultat</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Tier</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV absolue</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV vs field</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+function refreshScoreEVTable(mid) {
+  const el = document.getElementById('score-ev-'+mid);
+  if (!el) return;
+  const match = S.data?.matches?.find(m => m.id === mid);
+  if (match) el.innerHTML = buildScoreEVTable(match);
+}
+
+// ─── SCORE MATRIX ────────────────────────────────────────────
+function buildMatrixSection(m) {
+  const probs  = m.probs || {};
+  const mode   = (S.matrixInputModes||{})[m.id] || 'odds';
+  const tot    = mProbTotal(probs);
+  const totCls = Math.abs(tot-100)<2 ? 'ptb-ok' : tot>100 ? 'ptb-over' : 'ptb-under';
+  const totTxt = tot > 0 ? tot.toFixed(1)+'%' : '0%';
+
+  let rows = `<tr><td class="gh"></td>${Array.from({length:9},(_,a)=>`<td class="gh">&minus;${a}</td>`).join('')}</tr>`;
+  for (let h = 0; h <= 8; h++) {
+    let cells = `<td class="gh">${h}&minus;</td>`;
+    for (let a = 0; a <= 8; a++) {
+      if (h + a > 8) { cells += `<td><div class="gna"></div></td>`; continue; }
+      const sc = `${h}-${a}`;
+      const p  = parseFloat(probs[sc]||0);
+      const val = p > 0 ? (mode==='odds' ? (100/p).toFixed(2) : p) : '';
+      const ph  = mode==='odds' ? '—' : '0';
+      const cls = h===a ? 'gdraw' : h>a ? 'ghome' : 'gaway';
+      cells += `<td class="${cls}"><input class="pinp${p>0?' has-val':''}" type="number" min="0" step="${mode==='odds'?'0.01':'0.1'}" data-mid="${m.id}" data-score="${sc}" value="${val}" placeholder="${ph}"></td>`;
+    }
+    rows += `<tr>${cells}</tr>`;
+  }
+
+  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <span style="font-size:.82rem;font-weight:700;color:var(--g-dark)">📊 Matrice scores</span>
+      <button class="btn btn-ghost btn-sm btn-matrix-mode" data-id="${m.id}">${mode==='odds'?'1/x Cotes':'% Probas'}</button>
+      <button class="btn btn-ok btn-sm btn-paste-matrix" data-id="${m.id}">📋 Coller</button>
+      <button class="btn btn-ghost btn-sm btn-norm-matrix" data-id="${m.id}">⚖ Norm.</button>
+      <button class="btn btn-bad btn-sm btn-clear-matrix" data-id="${m.id}" style="padding:5px 8px">✕</button>
+      <span class="prob-total-badge ${totCls}" id="mtot-${m.id}">${totTxt}</span>
+      <span style="font-size:.65rem;color:var(--muted)">Dom.=vert · Nul=bleu · Ext.=rouge</span>
+    </div>
+    <div id="paste-area-${m.id}" style="display:none;margin-bottom:8px">
+      <textarea id="paste-ta-${m.id}" rows="2" placeholder='Colle ici le JSON copié depuis prono2 (bouton 📋 Copier matrice)' style="width:100%;padding:6px;border:1.5px solid var(--border);border-radius:6px;font-size:.7rem;font-family:monospace;resize:vertical"></textarea>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button class="btn btn-ok btn-sm btn-paste-apply" data-id="${m.id}">✓ Appliquer</button>
+        <button class="btn btn-ghost btn-sm btn-paste-cancel" data-id="${m.id}">✕ Annuler</button>
+      </div>
+    </div>
+    <div class="prob-wrap"><table class="prob-grid"><tbody>${rows}</tbody></table></div>
+    <div id="score-ev-${m.id}">${buildScoreEVTable(m)}</div>
+  </div>`;
+}
+
+function onMatrixInp(e) {
+  const { mid, score } = e.target.dataset;
+  if (!mid || !score) return;
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match) return;
+  if (!match.probs) match.probs = {};
+  const mode = (S.matrixInputModes||{})[mid] || 'odds';
+  const raw  = parseFloat(e.target.value);
+  const prob = mode==='odds' ? (raw>1 ? parseFloat((100/raw).toFixed(4)) : 0) : (raw>0 ? raw : 0);
+  if (!prob) { delete match.probs[score]; e.target.classList.remove('has-val'); }
+  else       { match.probs[score] = prob; e.target.classList.add('has-val'); }
+  const tot    = mProbTotal(match.probs);
+  const totCls = Math.abs(tot-100)<2 ? 'ptb-ok' : tot>100 ? 'ptb-over' : 'ptb-under';
+  const el = document.getElementById('mtot-'+mid);
+  if (el) { el.textContent = tot.toFixed(1)+'%'; el.className = 'prob-total-badge '+totCls; }
+  save();
+  refreshScoreEVTable(mid);
+}
+
+function toggleMatrixMode(mid) {
+  if (!S.matrixInputModes) S.matrixInputModes = {};
+  S.matrixInputModes[mid] = (S.matrixInputModes[mid]==='odds') ? 'prob' : 'odds';
+  const mode = S.matrixInputModes[mid];
+  const btn = document.querySelector(`.btn-matrix-mode[data-id="${mid}"]`);
+  if (btn) btn.textContent = mode==='odds' ? '1/x Cotes' : '% Probas';
+  const match = S.data.matches.find(m => m.id === mid);
+  document.querySelectorAll(`.pinp[data-mid="${mid}"]`).forEach(inp => {
+    const p = parseFloat(match?.probs?.[inp.dataset.score]||0);
+    inp.value    = p>0 ? (mode==='odds' ? (100/p).toFixed(2) : p) : '';
+    inp.step     = mode==='odds' ? '0.01' : '0.1';
+    inp.placeholder = mode==='odds' ? '—' : '0';
+  });
+}
+
+function togglePasteArea(mid) {
+  const area = document.getElementById('paste-area-'+mid);
+  if (!area) return;
+  const open = area.style.display !== 'none';
+  area.style.display = open ? 'none' : '';
+  if (!open) setTimeout(() => { const ta=document.getElementById('paste-ta-'+mid); if(ta) ta.focus(); }, 50);
+}
+
+function applyPasteMatrix(mid) {
+  const ta = document.getElementById('paste-ta-'+mid);
+  if (!ta) return;
+  try {
+    const probs = JSON.parse(ta.value.trim());
+    if (typeof probs !== 'object' || Array.isArray(probs)) throw new Error();
+    const match = S.data.matches.find(m => m.id === mid);
+    if (!match) return;
+    match.probs = {};
+    for (const [sc, v] of Object.entries(probs)) { const p=parseFloat(v); if(p>0) match.probs[sc]=p; }
+    save(); renderAdmin(); renderPublic(); refreshScoreEVTable(mid);
+    toast('Matrice appliquée ✓','ok');
+  } catch(e) { toast('JSON invalide','err'); }
+}
+
+function normalizeMatrix(mid) {
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match?.probs) return;
+  const tot = mProbTotal(match.probs);
+  if (tot <= 0) return;
+  ALL_SCORES_IDX.forEach(sc => { if (match.probs[sc]) match.probs[sc] = parseFloat((match.probs[sc]/tot*100).toFixed(2)); });
+  save(); renderAdmin();
+  toast('Normalisé à 100%','ok');
+}
+
+function clearMatrix(mid) {
+  if (!confirm('Effacer la matrice de ce match ?')) return;
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match) return;
+  match.probs = {};
+  save(); renderAdmin();
 }
 
 // ─── INLINE UPDATE ────────────────────────────────────────────
@@ -896,7 +1143,7 @@ function saveMatch() {
       date:document.getElementById('m-date').value,
       time:document.getElementById('m-time').value,
       phase:document.getElementById('m-phase').value,
-      type, outcomes:outs
+      type, outcomes:outs, probs:{}
     });
     toast('Match ajouté','ok');
   }
@@ -1103,7 +1350,7 @@ function loadCalendar() {
       : [{id:uid(),label:`Victoire ${m.tA}`,points:'',fairOdd:'',popularity:''},
          {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
          {id:uid(),label:`Victoire ${m.tB}`,points:'',fairOdd:'',popularity:''}];
-    return {id:uid(),teamA:m.tA,teamB:m.tB,date:m.date,time:m.time,phase:m.phase,type:m.type,outcomes:outs};
+    return {id:uid(),teamA:m.tA,teamB:m.tB,date:m.date,time:m.time,phase:m.phase,type:m.type,outcomes:outs,probs:{}};
   });
   save(); renderAdmin(); renderPublic();
   toast(`${PC.length} matchs chargés ✓`, 'ok');
