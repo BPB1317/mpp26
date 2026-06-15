@@ -87,6 +87,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-seri
 .amcard{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
 .amcard-hdr{display:flex;align-items:center;gap:10px;padding:13px 18px;background:#F8F9FA;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
 .amcard-hdr:hover{background:#F0F2F5}
+.am-past>.amcard-hdr{opacity:.5}
+.am-past>.amcard-hdr:hover{opacity:.8}
 .am-title{flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
 .am-teams{font-weight:700;font-size:.95rem;white-space:nowrap}
 .am-meta{font-size:.76rem;color:var(--muted)}
@@ -762,6 +764,8 @@ function renderAdmin() {
 }
 
 function adminCard(m) {
+  const today = new Date().toISOString().slice(0,10);
+  const isPast = m.date && m.date < today;
   const pc = PHASE_COLORS[m.phase]||'#6B7280';
   const totPop = m.outcomes.reduce((s,o)=>s+(parseFloat(o.popularity)||0),0);
   const popWarn = totPop > 0 && (totPop < 95 || totPop > 105);
@@ -784,7 +788,7 @@ function adminCard(m) {
   const recoSc = reco ? (S.riskLevel===1 ? `pop. ${(parseFloat(reco.popularity)||0).toFixed(0)}%` : S.riskLevel===3 ? `contrariant ${fmtEV(reco._sc)}` : `${fmtRel(reco._rel)} pts vs field`) : '';
   const banner = reco ? `<div class="reco-banner" id="reco-${m.id}">${rlLbl} — Recommandé&nbsp;: <strong>${esc(reco.label||'')}</strong>${recoSc?' ('+recoSc+')':''}</div>` : `<div class="reco-banner" id="reco-${m.id}" style="display:none"></div>`;
 
-  return `<div class="amcard" id="card-${m.id}">
+  return `<div class="amcard${isPast ? ' closed am-past' : ''}" id="card-${m.id}">
     <div class="amcard-hdr">
       <span class="collapse-ico">▼</span>
       <div class="am-title">
