@@ -615,6 +615,7 @@ function renderAdmin() {
   }));
   list.querySelectorAll('.btn-norm').forEach(b => b.addEventListener('click', e => normalizeProbs(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-clear').forEach(b => b.addEventListener('click', e => clearProbs(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-copy-matrix').forEach(b => b.addEventListener('click', e => copyMatrix(e.currentTarget.dataset.id)));
 }
 
 function adminCard(m) {
@@ -704,7 +705,7 @@ function adminCard(m) {
       </div>
 
       <div class="ev-section" style="margin-top:12px">
-        <div class="ev-section-title">Matrice EV — score à parier</div>
+        <div class="ev-section-title">Points espérés par score à parier <span style="font-weight:400;text-transform:none;letter-spacing:0;font-style:italic">(= Σ proba × pts pour chaque résultat possible)</span></div>
         <div id="ev-grid-${m.id}">${buildEVGrid(probs, phase)}</div>
       </div>
 
@@ -728,6 +729,7 @@ function adminCard(m) {
         <label>Score conseillé à afficher :</label>
         <input class="inp pick-inp" type="text" data-mid="${m.id}" value="${esc(m.pickscore||'')}" placeholder="Ex: 1-0 ou 2-1…">
         <span style="font-size:.72rem;color:var(--muted)">(affiché à ton amie)</span>
+        <button class="btn btn-outline btn-sm btn-copy-matrix" data-id="${m.id}" title="Copier les probabilités vers index.html">📋 Copier matrice</button>
       </div>
     </div>
   </div>`;
@@ -755,7 +757,7 @@ function buildEVGrid(probs, phase) {
         const bg = h === a ? `rgba(59,130,246,${alpha})` : h > a ? `rgba(34,197,94,${alpha})` : `rgba(239,68,68,${alpha})`;
         const fw = t > 0.75 ? 700 : 500;
         const col = t > 0.55 ? '#fff' : '#1F2937';
-        cells += `<td style="background:${bg}"><div style="width:36px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:${fw};color:${col}">${ev.toFixed(2)}</div></td>`;
+        cells += `<td style="background:${bg}" title="Parier ${sc} → ${ev.toFixed(2)} pts espérés"><div style="width:36px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:${fw};color:${col}">${ev.toFixed(2)}</div></td>`;
       }
     }
     html += `<tr>${cells}</tr>`;
@@ -871,6 +873,22 @@ function toggleInputMode() {
       inp.step = '0.1';
     }
   });
+}
+
+// ─── COPY MATRIX ─────────────────────────────────────────────
+function copyMatrix(mid) {
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match || !match.probs || !Object.keys(match.probs).length) {
+    toast('Aucune probabilité à copier','err'); return;
+  }
+  const json = JSON.stringify(match.probs);
+  navigator.clipboard.writeText(json)
+    .then(() => toast('Matrice copiée ! 📋','ok'))
+    .catch(() => {
+      const t = document.createElement('textarea'); t.value = json;
+      document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+      toast('Matrice copiée !','ok');
+    });
 }
 
 // ─── PROB ACTIONS ─────────────────────────────────────────────
