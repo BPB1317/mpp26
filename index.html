@@ -817,6 +817,27 @@ function adminCard(m) {
 }
 
 // ─── SCORE EV ────────────────────────────────────────────────
+const SCORE_BIAS = {
+  '0-0':0.50,
+  '1-0':1.25,'0-1':1.25,
+  '1-1':2.00,
+  '2-0':1.25,'0-2':1.25,
+  '2-1':1.75,'1-2':1.75,
+  '2-2':1.50,
+  '3-0':1.00,'0-3':1.00,
+  '3-1':1.10,'1-3':1.10,
+  '3-2':1.30,'2-3':1.30,
+  '3-3':1.20
+};
+function scoreBias(sc) {
+  if (SCORE_BIAS[sc] !== undefined) return SCORE_BIAS[sc];
+  const [h, a] = sc.split('-').map(Number);
+  const tot = h + a;
+  if (tot >= 8) return 0.30;
+  if (tot >= 7) return 0.35;
+  if (tot >= 6) return 0.40;
+  return 0.50;
+}
 function tieredPts(ratio) {
   if (ratio > 0.30) return 20;
   if (ratio > 0.20) return 30;
@@ -866,8 +887,12 @@ function computeScoreEVs(match) {
     const pts   = tieredPts(pS / pOut);
     evMap[sc]   = { pS, pts, ev: pS * pts };
   }
+  let biasSum = 0;
+  for (const [sc, d] of Object.entries(evMap)) biasSum += d.pS * scoreBias(sc);
   let fieldEV = 0;
-  for (const d of Object.values(evMap)) fieldEV += d.pS * d.ev;
+  if (biasSum > 0) {
+    for (const [sc, d] of Object.entries(evMap)) fieldEV += (d.pS * scoreBias(sc) / biasSum) * d.ev;
+  }
   const results = Object.entries(evMap).map(([sc, d]) => ({ score: sc, ...d, relEV: d.ev - fieldEV }));
   results.sort((a, b) => b.ev - a.ev);
   return { results, fieldEV };
