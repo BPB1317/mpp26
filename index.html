@@ -884,7 +884,7 @@ function computeScoreEVs(match) {
     const pS   = pRaw / tot;
     const pOut = getOutcomeFairProb(sc, match);
     if (!pOut) continue;
-    const pts   = tieredPts(pS / pOut);
+    const pts   = tieredPts((pS * scoreBias(sc)) / pOut);
     evMap[sc]   = { pS, pts, ev: pS * pts };
   }
   let biasSum = 0;
