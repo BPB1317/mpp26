@@ -975,12 +975,45 @@ function refreshScoreEVTable(mid) {
 }
 
 // ─── SCORE MATRIX ────────────────────────────────────────────
+function hexToRgb(hex) {
+  const v = parseInt(hex.slice(1), 16);
+  return [(v>>16)&255, (v>>8)&255, v&255];
+}
+function lerpRGB(c1, c2, t) {
+  const [r1,g1,b1] = hexToRgb(c1), [r2,g2,b2] = hexToRgb(c2);
+  return [Math.round(r1+(r2-r1)*t), Math.round(g1+(g2-g1)*t), Math.round(b1+(b2-b1)*t)];
+}
+const HEAT_COLORS = {
+  home: ['#B91C1C','#15803D'], // peu probable -> rouge · probable -> vert
+  draw: ['#1E3A8A','#D4AC0D'], // peu probable -> bleu foncé · probable -> or
+  away: ['#831843','#FBCFE8']  // peu probable -> rose foncé · probable -> rose clair
+};
+function probHeatStyle(cat, t) {
+  const [c1, c2] = HEAT_COLORS[cat];
+  const [r, g, b] = lerpRGB(c1, c2, Math.max(0, Math.min(1, t)));
+  const lum = 0.299*r + 0.587*g + 0.114*b;
+  return { bg: `rgb(${r},${g},${b})`, txt: lum < 150 ? '#fff' : '#1a1a1a' };
+}
+function computeProbRanges(probs) {
+  const ranges = { home:[Infinity,-Infinity], draw:[Infinity,-Infinity], away:[Infinity,-Infinity] };
+  for (const sc of ALL_SCORES_IDX) {
+    const p = parseFloat(probs[sc]||0);
+    if (!p) continue;
+    const [h, a] = sc.split('-').map(Number);
+    const cat = h===a ? 'draw' : h>a ? 'home' : 'away';
+    if (p < ranges[cat][0]) ranges[cat][0] = p;
+    if (p > ranges[cat][1]) ranges[cat][1] = p;
+  }
+  return ranges;
+}
+
 function buildMatrixSection(m) {
   const probs  = m.probs || {};
   const mode   = (S.matrixInputModes||{})[m.id] || 'odds';
   const tot    = mProbTotal(probs);
   const totCls = Math.abs(tot-100)<2 ? 'ptb-ok' : tot>100 ? 'ptb-over' : 'ptb-under';
   const totTxt = tot > 0 ? tot.toFixed(1)+'%' : '0%';
+  const ranges = computeProbRanges(probs);
 
   let rows = `<tr><td class="gh"></td>${Array.from({length:9},(_,a)=>`<td class="gh">&minus;${a}</td>`).join('')}</tr>`;
   for (let h = 0; h <= 8; h++) {
@@ -991,8 +1024,16 @@ function buildMatrixSection(m) {
       const p  = parseFloat(probs[sc]||0);
       const val = p > 0 ? (mode==='odds' ? (100/p).toFixed(2) : p) : '';
       const ph  = mode==='odds' ? '—' : '0';
-      const cls = h===a ? 'gdraw' : h>a ? 'ghome' : 'gaway';
-      cells += `<td class="${cls}"><input class="pinp${p>0?' has-val':''}" type="number" min="0" step="${mode==='odds'?'0.01':'0.1'}" data-mid="${m.id}" data-score="${sc}" value="${val}" placeholder="${ph}"></td>`;
+      const cat = h===a ? 'draw' : h>a ? 'home' : 'away';
+      const cls = cat==='draw' ? 'gdraw' : cat==='home' ? 'ghome' : 'gaway';
+      if (p > 0) {
+        const [rmin, rmax] = ranges[cat];
+        const t = rmax > rmin ? (p - rmin) / (rmax - rmin) : 1;
+        const { bg, txt } = probHeatStyle(cat, t);
+        cells += `<td class="${cls}" style="background:${bg}"><input class="pinp has-val" style="background:transparent;color:${txt};border-color:rgba(0,0,0,.2)" type="number" min="0" step="${mode==='odds'?'0.01':'0.1'}" data-mid="${m.id}" data-score="${sc}" value="${val}" placeholder="${ph}"></td>`;
+      } else {
+        cells += `<td class="${cls}"><input class="pinp" type="number" min="0" step="${mode==='odds'?'0.01':'0.1'}" data-mid="${m.id}" data-score="${sc}" value="${val}" placeholder="${ph}"></td>`;
+      }
     }
     rows += `<tr>${cells}</tr>`;
   }
@@ -1005,7 +1046,7 @@ function buildMatrixSection(m) {
       <button class="btn btn-ghost btn-sm btn-norm-matrix" data-id="${m.id}">⚖ Norm.</button>
       <button class="btn btn-bad btn-sm btn-clear-matrix" data-id="${m.id}" style="padding:5px 8px">✕</button>
       <span class="prob-total-badge ${totCls}" id="mtot-${m.id}">${totTxt}</span>
-      <span style="font-size:.65rem;color:var(--muted)">Dom.=vert · Nul=bleu · Ext.=rouge</span>
+      <span style="font-size:.65rem;color:var(--muted)">🎨 Dom. rouge→vert · Nul bleu→or · Ext. rose foncé→clair (peu probable → probable)</span>
     </div>
     <div id="paste-area-${m.id}" style="display:none;margin-bottom:8px">
       <textarea id="paste-ta-${m.id}" rows="2" placeholder='Colle ici le JSON copié depuis prono2 (bouton 📋 Copier matrice)' style="width:100%;padding:6px;border:1.5px solid var(--border);border-radius:6px;font-size:.7rem;font-family:monospace;resize:vertical"></textarea>
@@ -1036,6 +1077,36 @@ function onMatrixInp(e) {
   if (el) { el.textContent = tot.toFixed(1)+'%'; el.className = 'prob-total-badge '+totCls; }
   save();
   refreshScoreEVTable(mid);
+  refreshMatrixColors(mid);
+}
+
+function refreshMatrixColors(mid) {
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match) return;
+  const ranges = computeProbRanges(match.probs || {});
+  document.querySelectorAll(`.pinp[data-mid="${mid}"]`).forEach(inp => {
+    const sc = inp.dataset.score;
+    const p  = parseFloat((match.probs||{})[sc]||0);
+    const td = inp.parentElement;
+    const [h, a] = sc.split('-').map(Number);
+    const cat = h===a ? 'draw' : h>a ? 'home' : 'away';
+    if (p > 0) {
+      const [rmin, rmax] = ranges[cat];
+      const t = rmax > rmin ? (p - rmin) / (rmax - rmin) : 1;
+      const { bg, txt } = probHeatStyle(cat, t);
+      td.style.background   = bg;
+      inp.style.background  = 'transparent';
+      inp.style.color       = txt;
+      inp.style.borderColor = 'rgba(0,0,0,.2)';
+      inp.classList.add('has-val');
+    } else {
+      td.style.background = '';
+      inp.style.background = '';
+      inp.style.color = '';
+      inp.style.borderColor = '';
+      inp.classList.remove('has-val');
+    }
+  });
 }
 
 function toggleMatrixMode(mid) {
