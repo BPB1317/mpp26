@@ -706,6 +706,7 @@ function renderPublic() {
         <td style="padding:5px 12px"><span class="badge-ev ${relCls}" style="font-size:.74rem">${o._rel!==null?fmtRel(o._rel)+' pts':'—'}</span></td>
       </tr>`;
     }).join('');
+    const hasMatrix = m.probs && mProbTotal(m.probs) > 0;
     return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
       <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''} · <span style="color:${pc};font-weight:600;font-size:.7rem">${esc(m.phase||'')}</span></div></td>
       <td><span class="score-badge">${esc(m.pickscore)}</span></td>
@@ -725,6 +726,10 @@ function renderPublic() {
           </tr></thead>
           <tbody>${detailRows}</tbody>
         </table>
+        ${hasMatrix ? `<div style="margin-top:10px" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm" onclick="toggleScoreboard('${m.id}')" id="sbtog-${m.id}">📊 Voir les scores exacts ▾</button>
+          <div id="scoreboard-${m.id}" style="display:none">${buildScoreEVTable(m, true)}</div>
+        </div>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -733,6 +738,15 @@ function renderPublic() {
     <thead><tr><th>Match</th><th>Score conseillé</th><th>Niveau</th><th>Pronostic recommandé</th><th class="col-ev">EV vs field</th><th class="col-ev">EV absolue</th><th style="width:28px"></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+function toggleScoreboard(mid) {
+  const el = document.getElementById('scoreboard-'+mid);
+  const btn = document.getElementById('sbtog-'+mid);
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  if (btn) btn.innerHTML = open ? '📊 Voir les scores exacts ▾' : '📊 Masquer les scores exacts ▴';
 }
 
 // ─── RENDER ADMIN ─────────────────────────────────────────────
@@ -925,11 +939,19 @@ function computeScoreEVs(match) {
   if (biasSum > 0) {
     for (const [sc, d] of Object.entries(evMap)) fieldEV += (d.pS * scoreBias(sc) / biasSum) * d.ev;
   }
-  const results = Object.entries(evMap).map(([sc, d]) => ({ score: sc, ...d, relEV: d.ev - fieldEV }));
+  for (const [sc, d] of Object.entries(evMap)) {
+    d.fieldWeight = biasSum > 0 ? (d.pS * scoreBias(sc) / biasSum) : 0;
+    d.evHR = d.ev * (1 - d.fieldWeight);
+  }
+  let fieldEVHR = 0;
+  if (biasSum > 0) {
+    for (const [sc, d] of Object.entries(evMap)) fieldEVHR += d.fieldWeight * d.evHR;
+  }
+  const results = Object.entries(evMap).map(([sc, d]) => ({ score: sc, ...d, relEV: d.ev - fieldEV, relEVHR: d.evHR - fieldEVHR }));
   results.sort((a, b) => b.ev - a.ev);
-  return { results, fieldEV };
+  return { results, fieldEV, fieldEVHR };
 }
-function buildScoreEVTable(m) {
+function buildScoreEVTable(m, readonly) {
   const r = computeScoreEVs(m);
   if (!r || !r.results.length) return `<div style="font-size:.74rem;color:var(--muted);margin-top:8px;font-style:italic">Entrez des probabilités et des cotes justes pour voir les recommandations par score.</div>`;
   const TIER_CLR = {20:'#6B7280',30:'#3B82F6',50:'#059669',70:'#D97706',100:'#DC2626'};
@@ -940,15 +962,19 @@ function buildScoreEVTable(m) {
     const resClr = isDraw ? '#1D4ED8' : isHome ? '#065F46' : '#991B1B';
     const resTxt = isDraw ? 'Nul' : isHome ? esc(m.teamA||'Dom.') : esc(m.teamB||'Ext.');
     const relCls = d.relEV > 0 ? 'pos' : d.relEV < 0 ? 'neg' : 'neu';
-    const tierSel = `<select class="tier-override-sel" data-mid="${m.id}" data-score="${d.score}" style="font-size:.67rem;font-weight:700;color:${TIER_CLR[d.pts]};border:1px solid var(--border);border-radius:5px;padding:1px 3px;background:#fff;cursor:pointer">
+    const relHRCls = d.relEVHR > 0 ? 'pos' : d.relEVHR < 0 ? 'neg' : 'neu';
+    const tierCell = readonly
+      ? `<span style="font-size:.72rem;font-weight:700;color:${TIER_CLR[d.pts]}">${tierLabel(d.pts)} (${d.pts}pts)</span>`
+      : `<select class="tier-override-sel" data-mid="${m.id}" data-score="${d.score}" style="font-size:.67rem;font-weight:700;color:${TIER_CLR[d.pts]};border:1px solid var(--border);border-radius:5px;padding:1px 3px;background:#fff;cursor:pointer">
       ${TIER_OPTS.map(p => `<option value="${p}" ${p===d.pts?'selected':''}>${tierLabel(p)} (${p}pts)</option>`).join('')}
     </select>${d.overridden ? `<button class="btn-tier-reset" data-mid="${m.id}" data-score="${d.score}" title="Revenir au tier auto (${d.auto}pts)" style="margin-left:4px;font-size:.65rem;border:none;background:none;color:var(--muted);cursor:pointer">↺</button>` : ''}`;
     return `<tr style="${i===0?'background:#F0FDF4':''}">
       <td style="padding:4px 8px;font-weight:${i===0?700:400}">${i===0?'⭐ ':''}<code style="font-size:.8rem">${d.score}</code></td>
       <td style="padding:4px 8px;font-size:.72rem;font-weight:600;color:${resClr}">${resTxt}</td>
-      <td style="padding:4px 8px">${tierSel}</td>
+      <td style="padding:4px 8px">${tierCell}</td>
       <td style="padding:4px 8px;font-weight:700;color:#4338CA;font-size:.8rem">${d.ev.toFixed(3)}</td>
       <td style="padding:4px 8px"><span class="badge-ev ${relCls}" style="font-size:.67rem;padding:2px 7px">${d.relEV>=0?'+':''}${d.relEV.toFixed(3)}</span></td>
+      <td style="padding:4px 8px"><span class="badge-ev ${relHRCls}" style="font-size:.67rem;padding:2px 7px">${d.relEVHR>=0?'+':''}${d.relEVHR.toFixed(3)}</span></td>
     </tr>`;
   }).join('');
   return `<div style="margin-top:10px">
@@ -962,6 +988,7 @@ function buildScoreEVTable(m) {
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Tier</th>
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV absolue</th>
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV vs field</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV vs field (risqué)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
