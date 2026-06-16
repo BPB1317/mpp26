@@ -681,7 +681,7 @@ function renderPublic() {
     return;
   }
 
-  const scoredMatches = matches.filter(m => m.pickscore && m.pickscore.trim());
+  const scoredMatches = matches.filter(m => (m.pickscore && m.pickscore.trim()) || (m.probs && mProbTotal(m.probs) > 0));
 
   if (!scoredMatches.length) {
     tbl.innerHTML = '<div class="empty"><div class="empty-ico">📋</div><h3>Aucun pronostic disponible</h3><p>Les recommandations apparaîtront ici une fois que les scores sont saisis dans la partie admin.</p></div>';
@@ -707,9 +707,11 @@ function renderPublic() {
       </tr>`;
     }).join('');
     const hasMatrix = m.probs && mProbTotal(m.probs) > 0;
+    const scorePick = hasMatrix ? bestScorePick(m, ml) : null;
+    const pickscoreTxt = scorePick ? scorePick.score : (m.pickscore && m.pickscore.trim() ? m.pickscore : '—');
     return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
       <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''} · <span style="color:${pc};font-weight:600;font-size:.7rem">${esc(m.phase||'')}</span></div></td>
-      <td><span class="score-badge">${esc(m.pickscore)}</span></td>
+      <td><span class="score-badge">${esc(pickscoreTxt)}</span></td>
       <td onclick="event.stopPropagation()"><div class="mr-btns">${rlBtns}</div></td>
       <td>${best ? `<div class="pick-lbl"><span class="pick-dot ${dot}"></span><span>${esc(best.label||'')}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">—</span>'}</td>
       <td class="col-ev">${best?._rel!==null ? `<span class="badge-ev ${best._rel>0?'pos':best._rel<0?'neg':'neu'}">${fmtRel(best._rel)} pts</span>` : '—'}</td>
@@ -950,6 +952,17 @@ function computeScoreEVs(match) {
   const results = Object.entries(evMap).map(([sc, d]) => ({ score: sc, ...d, relEV: d.ev - fieldEV, relEVHR: d.evHR - fieldEVHR }));
   results.sort((a, b) => b.ev - a.ev);
   return { results, fieldEV, fieldEVHR };
+}
+
+function bestScorePick(match, rl) {
+  const r = computeScoreEVs(match);
+  if (!r || !r.results.length) return null;
+  const metric = rl === 3 ? 'relEVHR' : 'relEV';
+  let best = null;
+  for (const d of r.results) {
+    if (!best || d[metric] > best[metric]) best = d;
+  }
+  return best;
 }
 function buildScoreEVTable(m, readonly) {
   const r = computeScoreEVs(m);
