@@ -633,24 +633,47 @@ function renderPublic() {
 
   // Top picks strip
   const tpSec = document.getElementById('top-picks-section');
-  const topPicks = matches.filter(m => m.pickscore && m.pickscore.trim() && m._best >= 0 && m.outcomes[m._best]._sc !== null)
-    .sort((a,b) => (b.outcomes[b._best]._sc||0) - (a.outcomes[a._best]._sc||0))
-    .slice(0, 6);
+  const tpData = matches.map(m => {
+    const ml = (S.matchRiskLevels||{})[m.id] || S.riskLevel;
+    const hasMatrix = m.probs && mProbTotal(m.probs) > 0;
+    const scorePick = hasMatrix ? bestScorePick(m, ml) : null;
+    if (scorePick) {
+      const metric = ml === 3 ? scorePick.relEVHR : scorePick.relEV;
+      return { m, ml, scorePick, metric };
+    }
+    if (m.pickscore && m.pickscore.trim() && m._best >= 0 && m.outcomes[m._best]._sc !== null) {
+      return { m, ml, scorePick:null, best:m.outcomes[m._best], metric:m.outcomes[m._best]._sc };
+    }
+    return null;
+  }).filter(Boolean);
+
+  const topPicks = tpData.sort((a,b) => (b.metric||0) - (a.metric||0)).slice(0, 6);
 
   if (topPicks.length) {
-    const rl = S.riskLevel;
-    const tpTitle = rl===1 ? 'Picks les plus populaires' : rl===3 ? 'Meilleurs picks contrarianistes' : 'Meilleurs picks du moment';
+    const tpTitle = 'Meilleurs picks du moment';
     tpSec.innerHTML = `<div class="ptitle" style="margin-bottom:12px"><p style="font-weight:600;color:var(--g-dark)">${tpTitle}</p></div>` +
-      '<div class="top-picks">' + topPicks.map(m => {
-        const o = m.outcomes[m._best];
-        const cls = o._rel !== null ? (o._rel > 0.05 ? '' : o._rel < 0 ? 'neg' : 'neu') : 'neu';
-        const scTxt = rl===1 ? `Pop. ${(parseFloat(o.popularity)||0).toFixed(0)}%`
-                    : rl===3 ? `Contrariant : ${fmtEV(o._sc)}`
-                    : `${fmtRel(o._rel)} pts vs field`;
-        const scColor = rl===1 ? 'var(--ok)' : rl===3 ? '#D97706' : (o._rel>0?'var(--ok)':o._rel<0?'var(--bad)':'var(--warn)');
+      '<div class="top-picks">' + topPicks.map(({ m, ml, scorePick, best }) => {
+        let lbl, scTxt, scColor, cls;
+        if (scorePick) {
+          const [sh, sa] = scorePick.score.split('-').map(Number);
+          const dir = sh === sa ? 'Match nul' : sh > sa ? `Victoire ${m.teamA||'Dom.'}` : `Victoire ${m.teamB||'Ext.'}`;
+          lbl = `${dir} (${scorePick.score})`;
+          const rel = ml === 3 ? scorePick.relEVHR : scorePick.relEV;
+          scTxt = `${rel>=0?'+':''}${rel.toFixed(3)} vs field`;
+          scColor = rel>0?'var(--ok)':rel<0?'var(--bad)':'var(--warn)';
+          cls = rel > 0.005 ? '' : rel < 0 ? 'neg' : 'neu';
+        } else {
+          lbl = best.label||'';
+          const rl = ml;
+          scTxt = rl===1 ? `Pop. ${(parseFloat(best.popularity)||0).toFixed(0)}%`
+                : rl===3 ? `Contrariant : ${fmtEV(best._sc)}`
+                : `${fmtRel(best._rel)} pts vs field`;
+          scColor = rl===1 ? 'var(--ok)' : rl===3 ? '#D97706' : (best._rel>0?'var(--ok)':best._rel<0?'var(--bad)':'var(--warn)');
+          cls = best._rel !== null ? (best._rel > 0.05 ? '' : best._rel < 0 ? 'neg' : 'neu') : 'neu';
+        }
         return `<div class="tp-card ${cls}">
           <div class="tp-match">${esc(m.teamA)} vs ${esc(m.teamB)} · ${esc(m.phase||'')}</div>
-          <div class="tp-pick">→ ${esc(o.label||'')}</div>
+          <div class="tp-pick">→ ${esc(lbl)}</div>
           <div class="tp-ev" style="color:${scColor}">${scTxt}</div>
         </div>`;
       }).join('') + '</div>';
@@ -709,13 +732,24 @@ function renderPublic() {
     const hasMatrix = m.probs && mProbTotal(m.probs) > 0;
     const scorePick = hasMatrix ? bestScorePick(m, ml) : null;
     const pickscoreTxt = scorePick ? scorePick.score : (m.pickscore && m.pickscore.trim() ? m.pickscore : '—');
+    let pickLbl = best ? best.label : null;
+    let pickRel = best ? best._rel : null;
+    let pickEv  = best ? best._ev : null;
+    if (scorePick) {
+      const [sh, sa] = scorePick.score.split('-').map(Number);
+      pickLbl = sh === sa ? 'Match nul' : sh > sa ? `Victoire ${m.teamA||'Dom.'}` : `Victoire ${m.teamB||'Ext.'}`;
+      pickLbl += ` (${scorePick.score})`;
+      pickRel = ml === 3 ? scorePick.relEVHR : scorePick.relEV;
+      pickEv  = scorePick.ev;
+    }
+    const pickDot = pickRel > 0 ? 'pos' : pickRel < 0 ? 'neg' : 'neu';
     return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
       <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''} · <span style="color:${pc};font-weight:600;font-size:.7rem">${esc(m.phase||'')}</span></div></td>
       <td><span class="score-badge">${esc(pickscoreTxt)}</span></td>
       <td onclick="event.stopPropagation()"><div class="mr-btns">${rlBtns}</div></td>
-      <td>${best ? `<div class="pick-lbl"><span class="pick-dot ${dot}"></span><span>${esc(best.label||'')}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">—</span>'}</td>
-      <td class="col-ev">${best?._rel!==null ? `<span class="badge-ev ${best._rel>0?'pos':best._rel<0?'neg':'neu'}">${fmtRel(best._rel)} pts</span>` : '—'}</td>
-      <td class="col-ev"><span style="font-size:.8rem;color:var(--muted)">${best?._ev!==null?fmtEV(best._ev):'—'}</span></td>
+      <td>${pickLbl ? `<div class="pick-lbl"><span class="pick-dot ${pickDot}"></span><span>${esc(pickLbl)}</span></div>` : '<span style="color:var(--muted);font-size:.8rem">—</span>'}</td>
+      <td class="col-ev">${pickRel!==null && pickRel!==undefined ? `<span class="badge-ev ${pickRel>0?'pos':pickRel<0?'neg':'neu'}">${(pickRel>=0?'+':'')+pickRel.toFixed(scorePick?3:2)}${scorePick?'':' pts'}</span>` : '—'}</td>
+      <td class="col-ev"><span style="font-size:.8rem;color:var(--muted)">${pickEv!==null && pickEv!==undefined ? pickEv.toFixed(scorePick?3:2) : '—'}</span></td>
       <td style="text-align:center;font-size:.75rem;user-select:none;color:var(--muted);width:28px" id="tog-${m.id}">▼</td>
     </tr>
     <tr class="det-row" id="detail-${m.id}" style="display:none">
