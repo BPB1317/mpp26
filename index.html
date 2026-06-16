@@ -983,14 +983,17 @@ function lerpRGB(c1, c2, t) {
   const [r1,g1,b1] = hexToRgb(c1), [r2,g2,b2] = hexToRgb(c2);
   return [Math.round(r1+(r2-r1)*t), Math.round(g1+(g2-g1)*t), Math.round(b1+(b2-b1)*t)];
 }
+function lerpRGB3(stops, t) {
+  const { low, mid, high } = stops;
+  return t <= 0.5 ? lerpRGB(low, mid, t/0.5) : lerpRGB(mid, high, (t-0.5)/0.5);
+}
 const HEAT_COLORS = {
-  home: ['#B91C1C','#15803D'], // peu probable -> rouge · probable -> vert
-  draw: ['#1E3A8A','#D4AC0D'], // peu probable -> bleu foncé · probable -> or
-  away: ['#831843','#FBCFE8']  // peu probable -> rose foncé · probable -> rose clair
+  home: { low:'#B91C1C', mid:'#FCA5A5', high:'#15803D' }, // peu probable -> rouge foncé · milieu -> rouge clair · probable -> vert
+  draw: { low:'#1E3A8A', mid:'#FEF9C3', high:'#D4AC0D' }, // peu probable -> bleu foncé · milieu -> jaune clair · probable -> or
+  away: { low:'#831843', mid:'#EC4899', high:'#FBCFE8' }  // peu probable -> rose foncé · milieu -> rose · probable -> rose clair
 };
 function probHeatStyle(cat, t) {
-  const [c1, c2] = HEAT_COLORS[cat];
-  const [r, g, b] = lerpRGB(c1, c2, Math.max(0, Math.min(1, t)));
+  const [r, g, b] = lerpRGB3(HEAT_COLORS[cat], Math.max(0, Math.min(1, t)));
   const lum = 0.299*r + 0.587*g + 0.114*b;
   return { bg: `rgb(${r},${g},${b})`, txt: lum < 150 ? '#fff' : '#1a1a1a' };
 }
@@ -1022,7 +1025,7 @@ function buildMatrixSection(m) {
       if (h + a > 8) { cells += `<td><div class="gna"></div></td>`; continue; }
       const sc = `${h}-${a}`;
       const p  = parseFloat(probs[sc]||0);
-      const val = p > 0 ? (mode==='odds' ? (100/p).toFixed(2) : p) : '';
+      const val = p > 0 ? (mode==='odds' ? (100/p).toFixed(2) : p.toFixed(1)) : '';
       const ph  = mode==='odds' ? '—' : '0';
       const cat = h===a ? 'draw' : h>a ? 'home' : 'away';
       const cls = cat==='draw' ? 'gdraw' : cat==='home' ? 'ghome' : 'gaway';
@@ -1118,7 +1121,7 @@ function toggleMatrixMode(mid) {
   const match = S.data.matches.find(m => m.id === mid);
   document.querySelectorAll(`.pinp[data-mid="${mid}"]`).forEach(inp => {
     const p = parseFloat(match?.probs?.[inp.dataset.score]||0);
-    inp.value    = p>0 ? (mode==='odds' ? (100/p).toFixed(2) : p) : '';
+    inp.value    = p>0 ? (mode==='odds' ? (100/p).toFixed(2) : p.toFixed(1)) : '';
     inp.step     = mode==='odds' ? '0.01' : '0.1';
     inp.placeholder = mode==='odds' ? '—' : '0';
   });
