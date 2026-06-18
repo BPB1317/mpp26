@@ -958,14 +958,20 @@ function applyPasteMatrix(mid) {
   const ta = document.getElementById('paste-ta-'+mid);
   if (!ta) return;
   try {
-    const probs = JSON.parse(ta.value.trim());
-    if (typeof probs !== 'object' || Array.isArray(probs)) throw new Error();
+    const raw = JSON.parse(ta.value.trim());
+    if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error();
     const match = S.data.matches.find(m => m.id === mid);
     if (!match) return;
+    const vals = Object.values(raw).map(v => parseFloat(v)).filter(v => v > 0);
+    const sum = vals.reduce((s, v) => s + v, 0);
+    const scale = sum > 0 && sum <= 2 ? 100 : 1;
     match.probs = {};
-    for (const [sc, v] of Object.entries(probs)) { const p=parseFloat(v); if(p>0) match.probs[sc]=p; }
+    for (const [sc, v] of Object.entries(raw)) {
+      const p = parseFloat(v) * scale;
+      if (p > 0) match.probs[sc] = parseFloat(p.toFixed(4));
+    }
     save(); renderAdmin(); renderPublic();
-    toast('Matrice appliquée ✓','ok');
+    toast('Matrice appliquée ✓' + (scale === 100 ? ' (fractions → %)' : ''), 'ok');
   } catch(e) { toast('JSON invalide','err'); }
 }
 
@@ -976,16 +982,12 @@ function normalizeProbs(mid) {
   const tot = probTotal(match.probs);
   if (tot <= 0) return;
   const active = ALL_SCORES.filter(sc => match.probs[sc] > 0);
-  const n = active.length;
-  if (!n) return;
-  const cut = (tot - 100) / n;
+  if (!active.length) return;
   active.forEach(sc => {
-    const p = match.probs[sc] - cut;
-    if (p > 0) match.probs[sc] = parseFloat(p.toFixed(4));
-    else delete match.probs[sc];
+    match.probs[sc] = parseFloat((match.probs[sc] * 100 / tot).toFixed(4));
   });
   save(); renderAdmin(); renderPublic();
-  toast('Normalisé à 100% (margin ∝ cotes)','ok');
+  toast('Normalisé à 100%','ok');
 }
 
 function clearProbs(mid) {
