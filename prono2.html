@@ -636,6 +636,7 @@ function renderAdmin() {
   }));
   list.querySelectorAll('.btn-norm').forEach(b => b.addEventListener('click', e => normalizeProbs(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-clear').forEach(b => b.addEventListener('click', e => clearProbs(e.currentTarget.dataset.id)));
+  list.querySelectorAll('.btn-convert-odds').forEach(b => b.addEventListener('click', e => convertOddsToProbs(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-copy-matrix').forEach(b => b.addEventListener('click', e => copyMatrix(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-paste-matrix').forEach(b => b.addEventListener('click', e => togglePasteArea(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-paste-apply').forEach(b => b.addEventListener('click', e => applyPasteMatrix(e.currentTarget.dataset.id)));
@@ -724,6 +725,7 @@ function adminCard(m) {
           <span style="font-size:.75rem;color:var(--muted)">Total :</span>
           <span class="prob-total-badge ${totCls}" id="total-prob2-${m.id}">${totTxt}</span>
           <button class="btn btn-sm btn-outline btn-norm" data-id="${m.id}">⚖ Normaliser à 100%</button>
+          ${tot > 200 ? `<button class="btn btn-sm btn-convert-odds" data-id="${m.id}" style="background:#FEF3C7;color:#92400E;border:1.5px solid #FCD34D">🔄 Cotes → probas</button>` : ''}
           <button class="btn btn-sm btn-red btn-clear" data-id="${m.id}">✕ Effacer</button>
         </div>
       </div>
@@ -757,11 +759,19 @@ function adminCard(m) {
         <button class="btn btn-ok btn-sm btn-paste-matrix" data-id="${m.id}">📤 Coller matrice</button>
       </div>
       <div id="paste-area-${m.id}" style="display:none;margin-top:8px;padding:10px;background:#F0FDF4;border:1.5px solid #6EE7B7;border-radius:8px">
-        <div style="font-size:.74rem;font-weight:600;color:#065F46;margin-bottom:6px">Colle ici le JSON (copié depuis index.html ou généré depuis un screen) :</div>
-        <textarea id="paste-ta-${m.id}" rows="2" placeholder='{"1-0":13.73,"2-0":12.10,...}' style="width:100%;padding:6px;border:1.5px solid #6EE7B7;border-radius:6px;font-size:.7rem;font-family:monospace;resize:vertical"></textarea>
+        <div style="font-size:.74rem;font-weight:600;color:#065F46;margin-bottom:6px">Colle ici le JSON (cotes décimales ou probas %) — détection automatique :</div>
+        <textarea id="paste-ta-${m.id}" rows="2" placeholder='{"1-0":9.45,"2-0":6.50,...}  ← cotes  ou  {"1-0":10.59,...}  ← %' style="width:100%;padding:6px;border:1.5px solid #6EE7B7;border-radius:6px;font-size:.7rem;font-family:monospace;resize:vertical"></textarea>
         <div style="display:flex;gap:6px;margin-top:6px">
           <button class="btn btn-ok btn-sm btn-paste-apply" data-id="${m.id}">✓ Appliquer</button>
           <button class="btn btn-ghost btn-sm btn-paste-cancel" data-id="${m.id}">✕ Annuler</button>
+        </div>
+      </div>
+      <div id="copy-area-${m.id}" style="display:none;margin-top:8px;padding:10px;background:#EFF6FF;border:1.5px solid #93C5FD;border-radius:8px">
+        <div style="font-size:.74rem;font-weight:600;color:#1D4ED8;margin-bottom:6px">JSON copié — sélectionne tout (Ctrl+A) puis Ctrl+C si le presse-papier n'a pas fonctionné :</div>
+        <textarea id="copy-ta-${m.id}" rows="2" readonly style="width:100%;padding:6px;border:1.5px solid #93C5FD;border-radius:6px;font-size:.7rem;font-family:monospace;resize:vertical;background:#fff"></textarea>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="btn btn-outline btn-sm" onclick="(function(){const t=document.getElementById('copy-ta-${m.id}');t.select();try{document.execCommand('copy');toast('Copié !','ok');}catch(e){}})()">📋 Copier</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('copy-area-${m.id}').style.display='none'">✕ Fermer</button>
         </div>
       </div>
     </div>
@@ -936,12 +946,18 @@ function copyMatrix(mid) {
     toast('Aucune probabilité à copier','err'); return;
   }
   const json = JSON.stringify(match.probs);
+  // Show JSON in visible textarea so user can always copy manually
+  const copyArea = document.getElementById('copy-area-'+mid);
+  const copyTa = document.getElementById('copy-ta-'+mid);
+  if (copyArea && copyTa) { copyTa.value = json; copyArea.style.display = ''; copyTa.select(); }
   navigator.clipboard.writeText(json)
     .then(() => toast('Matrice copiée ! 📋','ok'))
     .catch(() => {
-      const t = document.createElement('textarea'); t.value = json;
-      document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
-      toast('Matrice copiée !','ok');
+      try {
+        const t = document.createElement('textarea'); t.value = json;
+        document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+        toast('Matrice copiée !','ok');
+      } catch(e2) { toast('JSON visible ci-dessous — sélectionne et Ctrl+C','info'); }
     });
 }
 
@@ -964,14 +980,18 @@ function applyPasteMatrix(mid) {
     if (!match) return;
     const vals = Object.values(raw).map(v => parseFloat(v)).filter(v => v > 0);
     const sum = vals.reduce((s, v) => s + v, 0);
-    const scale = sum > 0 && sum <= 2 ? 100 : 1;
+    // Auto-detect format: fractions (0-1), percentages, or decimal odds (sum >> 100, all >= 1)
+    let isOdds = false, scale = 1, msg = 'Matrice appliquée ✓';
+    if (sum <= 2) { scale = 100; msg += ' (fractions → %)'; }
+    else if (sum > 200 && vals.every(v => v >= 1)) { isOdds = true; msg += ' (cotes → probas)'; }
     match.probs = {};
     for (const [sc, v] of Object.entries(raw)) {
-      const p = parseFloat(v) * scale;
-      if (p > 0) match.probs[sc] = parseFloat(p.toFixed(4));
+      const fv = parseFloat(v);
+      if (fv <= 0) continue;
+      match.probs[sc] = isOdds ? parseFloat((100 / fv).toFixed(4)) : parseFloat((fv * scale).toFixed(4));
     }
     save(); renderAdmin(); renderPublic();
-    toast('Matrice appliquée ✓' + (scale === 100 ? ' (fractions → %)' : ''), 'ok');
+    toast(msg, 'ok');
   } catch(e) { toast('JSON invalide','err'); }
 }
 
@@ -988,6 +1008,19 @@ function normalizeProbs(mid) {
   });
   save(); renderAdmin(); renderPublic();
   toast('Normalisé à 100%','ok');
+}
+
+function convertOddsToProbs(mid) {
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match || !match.probs) return;
+  const newProbs = {};
+  for (const [sc, v] of Object.entries(match.probs)) {
+    const fv = parseFloat(v);
+    if (fv > 0) newProbs[sc] = parseFloat((100 / fv).toFixed(4));
+  }
+  match.probs = newProbs;
+  save(); renderAdmin(); renderPublic();
+  toast('Cotes converties en probabilités implicites ✓','ok');
 }
 
 function clearProbs(mid) {
