@@ -629,7 +629,7 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 // ─── RENDER PUBLIC ────────────────────────────────────────────
 function renderPublic() {
-  const matches = S.data.matches.map(enrich).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+  const matches = S.data.matches.map(enrich).sort((a,b)=>((a.date||'9999')+'T'+(a.time||'99:99')).localeCompare((b.date||'9999')+'T'+(b.time||'99:99')));
 
   // Top picks strip
   const tpSec = document.getElementById('top-picks-section');
@@ -787,8 +787,9 @@ function toggleScoreboard(mid) {
 
 // ─── RENDER ADMIN ─────────────────────────────────────────────
 function renderAdmin() {
+  const _sv = window.scrollY;
   const list = document.getElementById('admin-list');
-  const matches = S.data.matches.map(enrich).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+  const matches = S.data.matches.map(enrich).sort((a,b)=>((a.date||'9999')+'T'+(a.time||'99:99')).localeCompare((b.date||'9999')+'T'+(b.time||'99:99')));
 
   if (!matches.length) {
     list.innerHTML = '<div class="empty"><div class="empty-ico">⚽</div><h3>Aucun match</h3><p>Cliquez sur "+ Ajouter un match" pour commencer.</p></div>';
@@ -812,6 +813,7 @@ function renderAdmin() {
   list.querySelectorAll('.btn-norm-matrix').forEach(b => b.addEventListener('click', e => normalizeMatrix(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-clear-matrix').forEach(b => b.addEventListener('click', e => clearMatrix(e.currentTarget.dataset.id)));
   bindScoreEVControls(list);
+  requestAnimationFrame(() => window.scrollTo(0, _sv));
 }
 
 function bindScoreEVControls(container) {
@@ -843,8 +845,7 @@ function resetTierOverride(mid, score) {
 }
 
 function adminCard(m) {
-  const today = new Date().toISOString().slice(0,10);
-  const isPast = m.date && m.date < today;
+  const isPast = m.date ? (Date.now() - new Date(m.date + 'T' + (m.time || '00:00') + ':00').getTime()) > 2 * 3600 * 1000 : false;
   const pc = PHASE_COLORS[m.phase]||'#6B7280';
   const totPop = m.outcomes.reduce((s,o)=>s+(parseFloat(o.popularity)||0),0);
   const popWarn = totPop > 0 && (totPop < 95 || totPop > 105);
