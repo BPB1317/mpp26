@@ -918,6 +918,8 @@ function scoreBias(sc) {
   if (tot >= 6) return 0.40;
   return 0.50;
 }
+// % du field qui joue ce score exact, PARMI ceux qui ont le bon 1X2
+const TIER_FIELD_PCT = { 20: 0.30, 30: 0.20, 50: 0.12, 70: 0.03, 100: 0.005 };
 function tieredPts(ratio) {
   if (ratio > 0.30) return 20;
   if (ratio > 0.20) return 30;
@@ -958,6 +960,22 @@ function computeScoreEVs(match) {
   const tot = mProbTotal(probs);
   if (tot <= 0) return null;
   const overrides = match.tierOverrides || {};
+  // Layer 1 : popularité 1X2 (fraction du field qui a le bon résultat)
+  const _outs = match.outcomes || [];
+  const _totalPop = _outs.reduce((s,o) => s+(parseFloat(o.popularity)||0), 0);
+  const outPop = (sc) => {
+    const [h, a] = sc.split('-').map(Number);
+    if (_totalPop <= 0) return match.type === 'ko' ? 0.5 : 1/3;
+    const pops = _outs.map(o => parseFloat(o.popularity)||0);
+    if (match.type === 'ko') {
+      if (h > a) return pops[0] / _totalPop;
+      if (a > h) return (pops[1]||0) / _totalPop;
+      return 0;
+    }
+    if (h > a) return pops[0] / _totalPop;
+    if (h === a) return (pops[1]||0) / _totalPop;
+    return (pops[2]||0) / _totalPop;
+  };
   const evMap = {};
   for (const sc of ALL_SCORES_IDX) {
     const pRaw = parseFloat(probs[sc]||0);
@@ -965,27 +983,28 @@ function computeScoreEVs(match) {
     const pS   = pRaw / tot;
     const pOut = getOutcomeFairProb(sc, match);
     if (!pOut) continue;
-    const auto  = tieredPts((pS * scoreBias(sc)) / pOut);
-    const ov    = overrides[sc];
-    const pts   = (ov !== undefined && ov !== null) ? ov : auto;
-    evMap[sc]   = { pS, pts, auto, overridden: pts !== auto, ev: pS * pts };
+    const auto = tieredPts((pS * scoreBias(sc)) / pOut);
+    const ov   = overrides[sc];
+    const pts  = (ov !== undefined && ov !== null) ? ov : auto;
+    // Layer 2 : % du field qui joue ce score parmi ceux qui ont le bon 1X2
+    const fw   = outPop(sc) * (TIER_FIELD_PCT[pts] || 0);
+    evMap[sc]  = { pS, pts, auto, overridden: pts !== auto, ev: pS * pts, fieldWeight: fw, evHR: pS * pts * (1 - fw) };
   }
-  let biasSum = 0;
-  for (const [sc, d] of Object.entries(evMap)) biasSum += d.pS * scoreBias(sc);
-  let fieldEV = 0;
-  if (biasSum > 0) {
-    for (const [sc, d] of Object.entries(evMap)) fieldEV += (d.pS * scoreBias(sc) / biasSum) * d.ev;
+  // Moyennes pondérées du field (poids = fieldWeight normalisé)
+  let wSum = 0, fieldEV = 0, fieldEVHR = 0;
+  for (const d of Object.values(evMap)) wSum += d.fieldWeight;
+  if (wSum > 0) {
+    for (const d of Object.values(evMap)) {
+      fieldEV   += (d.fieldWeight / wSum) * d.ev;
+      fieldEVHR += (d.fieldWeight / wSum) * d.evHR;
+    }
   }
-  for (const [sc, d] of Object.entries(evMap)) {
-    d.fieldWeight = biasSum > 0 ? (d.pS * scoreBias(sc) / biasSum) : 0;
-    d.evHR = d.ev * (1 - d.fieldWeight);
-  }
-  let fieldEVHR = 0;
-  if (biasSum > 0) {
-    for (const [sc, d] of Object.entries(evMap)) fieldEVHR += d.fieldWeight * d.evHR;
-  }
-  const results = Object.entries(evMap).map(([sc, d]) => ({ score: sc, ...d, relEV: d.ev - fieldEV, relEVHR: d.evHR - fieldEVHR }));
-  results.sort((a, b) => b.ev - a.ev);
+  const results = Object.entries(evMap).map(([sc, d]) => ({
+    score: sc, ...d,
+    relEV:   d.evHR,              // EV exclusif = EV × (1 − p_field)
+    relEVHR: d.evHR - fieldEVHR  // EV exclusif vs gain exclusif moyen du field
+  }));
+  results.sort((a, b) => b.relEV - a.relEV);
   return { results, fieldEV, fieldEVHR };
 }
 
@@ -1055,8 +1074,8 @@ function buildScoreEVTable(m, readonly) {
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Résultat</th>
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Tier</th>
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV absolue</th>
-        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV vs field</th>
-        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV vs field (risqué)</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV exclusif</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Avantage vs field</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
