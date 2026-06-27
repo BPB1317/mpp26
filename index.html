@@ -960,9 +960,10 @@ function computeScoreEVs(match) {
   const tot = mProbTotal(probs);
   if (tot <= 0) return null;
   const overrides = match.tierOverrides || {};
-  // Layer 1 : popularité 1X2 (fraction du field qui a le bon résultat)
   const _outs = match.outcomes || [];
   const _totalPop = _outs.reduce((s,o) => s+(parseFloat(o.popularity)||0), 0);
+
+  // Layer 1 : fraction du field qui a le bon résultat 1X2
   const outPop = (sc) => {
     const [h, a] = sc.split('-').map(Number);
     if (_totalPop <= 0) return match.type === 'ko' ? 0.5 : 1/3;
@@ -976,36 +977,78 @@ function computeScoreEVs(match) {
     if (h === a) return (pops[1]||0) / _totalPop;
     return (pops[2]||0) / _totalPop;
   };
+
+  // Points 1X2 associés à la direction du score sc
+  const getPts1X2 = (sc) => {
+    const [h, a] = sc.split('-').map(Number);
+    if (match.type === 'ko') {
+      if (h > a) return parseFloat(_outs[0]?.points) || 0;
+      if (a > h) return parseFloat(_outs[1]?.points) || 0;
+      return 0;
+    }
+    if (h > a) return parseFloat(_outs[0]?.points) || 0;
+    if (h === a) return parseFloat(_outs[1]?.points) || 0;
+    return parseFloat(_outs[2]?.points) || 0;
+  };
+
+  // EV field couche 1X2 = Σ_out [ pop_out × P(out) × pts_1X2_out ]
+  let fieldEV_1X2 = 0;
+  {
+    const idxs = match.type === 'ko' ? [0, 1] : [0, 1, 2];
+    for (const i of idxs) {
+      const o = _outs[i];
+      if (!o) continue;
+      const pop = _totalPop > 0 ? (parseFloat(o.popularity)||0) / _totalPop
+                                 : (match.type === 'ko' ? 0.5 : 1/3);
+      const odd = parseFloat(o.fairOdd);
+      const pts = parseFloat(o.points) || 0;
+      if (odd > 1 && pts > 0) fieldEV_1X2 += pop * (1/odd) * pts;
+    }
+  }
+
+  // Construction de la evMap
   const evMap = {};
   for (const sc of ALL_SCORES_IDX) {
     const pRaw = parseFloat(probs[sc]||0);
     if (!pRaw) continue;
-    const pS   = pRaw / tot;
-    const pOut = getOutcomeFairProb(sc, match);
+    const pS      = pRaw / tot;
+    const pOut    = getOutcomeFairProb(sc, match);
     if (!pOut) continue;
-    const auto = tieredPts((pS * scoreBias(sc)) / pOut);
-    const ov   = overrides[sc];
-    const pts  = (ov !== undefined && ov !== null) ? ov : auto;
-    // Layer 2 : % du field qui joue ce score parmi ceux qui ont le bon 1X2
-    const fw   = outPop(sc) * (TIER_FIELD_PCT[pts] || 0);
-    evMap[sc]  = { pS, pts, auto, overridden: pts !== auto, ev: pS * pts, fieldWeight: fw, evHR: pS * pts * (1 - fw) };
+    const auto    = tieredPts((pS * scoreBias(sc)) / pOut);
+    const ov      = overrides[sc];
+    const tierPts = (ov !== undefined && ov !== null) ? ov : auto;
+    const p1X2    = getPts1X2(sc);
+    const op      = outPop(sc);
+    // Layer 2 : fraction du field qui joue exactement ce score (parmi ceux avec le bon 1X2)
+    const fw      = op * (TIER_FIELD_PCT[tierPts] || 0);
+    // EV totale si tu joues sc : P(bon 1X2) × pts_1X2 + P(score exact) × tier_pts
+    const ev_total = pOut * p1X2 + pS * tierPts;
+
+    evMap[sc] = {
+      pS, pOut, pts: tierPts, auto,
+      overridden: tierPts !== auto,
+      ev: ev_total,
+      ev_1x2: pOut * p1X2,
+      ev_bonus: pS * tierPts,
+      fieldWeight: fw
+    };
   }
-  // Moyennes pondérées du field (poids = fieldWeight normalisé)
-  let wSum = 0, fieldEV = 0, fieldEVHR = 0;
-  for (const d of Object.values(evMap)) wSum += d.fieldWeight;
-  if (wSum > 0) {
-    for (const d of Object.values(evMap)) {
-      fieldEV   += (d.fieldWeight / wSum) * d.ev;
-      fieldEVHR += (d.fieldWeight / wSum) * d.evHR;
-    }
+
+  // EV field couche bonus = Σ_sc [ P(sc) × fw(sc) × tier_pts(sc) ]
+  let fieldEV_bonus = 0;
+  for (const d of Object.values(evMap)) {
+    fieldEV_bonus += d.pS * d.fieldWeight * d.pts;
   }
+
+  const fieldEVTotal = fieldEV_1X2 + fieldEV_bonus;
+
   const results = Object.entries(evMap).map(([sc, d]) => ({
     score: sc, ...d,
-    relEV:   d.evHR,              // EV exclusif = EV × (1 − p_field)
-    relEVHR: d.evHR - fieldEVHR  // EV exclusif vs gain exclusif moyen du field
+    relEV:   d.ev - fieldEVTotal,       // Avantage vs field (Standard ⚖)
+    relEVHR: d.ev * (1 - d.fieldWeight) // EV exclusive (Risqué 🔥)
   }));
   results.sort((a, b) => b.relEV - a.relEV);
-  return { results, fieldEV, fieldEVHR };
+  return { results, fieldEV: fieldEV_1X2, fieldEVBonus: fieldEV_bonus, fieldEVTotal };
 }
 
 function bestScorePick(match, rl) {
@@ -1065,7 +1108,7 @@ function buildScoreEVTable(m, readonly) {
 
   return `<div style="margin-top:10px">
     <div style="font-size:.71rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">
-      Meilleurs paris par EV &nbsp;<span style="font-weight:400;font-style:italic;text-transform:none">field EV moy : ${r.fieldEV.toFixed(3)}</span>
+      Meilleurs paris par EV &nbsp;<span style="font-weight:400;font-style:italic;text-transform:none">field EV moy (1X2+bonus) : ${r.fieldEVTotal.toFixed(3)}</span>
     </div>
     ${pageSelector}
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78rem">
@@ -1073,9 +1116,9 @@ function buildScoreEVTable(m, readonly) {
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Score</th>
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Résultat</th>
         <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Tier</th>
-        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV absolue</th>
-        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV exclusif</th>
-        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Avantage vs field</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV totale</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">Avantage vs field ⚖</th>
+        <th style="padding:4px 8px;text-align:left;font-size:.69rem;color:var(--muted)">EV exclusive 🔥</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
