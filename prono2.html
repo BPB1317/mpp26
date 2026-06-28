@@ -152,6 +152,9 @@ a{color:var(--g)}
   .col-ev{display:none}
   .scoring-legend{gap:10px}
 }
+.team-name-inp{border:none;background:transparent;font-weight:700;font-size:.88rem;padding:2px 5px;border-radius:4px;cursor:text;color:inherit;font-family:inherit}
+.team-name-inp:hover{background:rgba(0,0,0,.06)}
+.team-name-inp:focus{outline:2px solid var(--g-light);background:#fff;border-radius:4px}
 </style>
 </head>
 <body>
@@ -631,7 +634,7 @@ function renderAdmin() {
   list.querySelectorAll('.pinp').forEach(inp => inp.addEventListener('input', onProbInp));
   list.querySelectorAll('.pick-inp').forEach(inp => inp.addEventListener('input', onPickInp));
   list.querySelectorAll('.amcard-hdr').forEach(h => h.addEventListener('click', e => {
-    if (e.target.closest('button')) return;
+    if (e.target.closest('button') || e.target.closest('.team-name-inp')) return;
     h.closest('.amcard').classList.toggle('closed');
   }));
   list.querySelectorAll('.btn-norm').forEach(b => b.addEventListener('click', e => normalizeProbs(e.currentTarget.dataset.id)));
@@ -641,6 +644,7 @@ function renderAdmin() {
   list.querySelectorAll('.btn-paste-matrix').forEach(b => b.addEventListener('click', e => togglePasteArea(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-paste-apply').forEach(b => b.addEventListener('click', e => applyPasteMatrix(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-paste-cancel').forEach(b => b.addEventListener('click', e => { const a=document.getElementById('paste-area-'+e.currentTarget.dataset.id); if(a) a.style.display='none'; }));
+  list.querySelectorAll('.team-name-inp').forEach(inp => inp.addEventListener('change', onTeamNameInp));
 }
 
 function adminCard(m) {
@@ -704,7 +708,11 @@ function adminCard(m) {
     <div class="amcard-hdr">
       <span class="collapse-ico">▼</span>
       <div class="am-title">
-        <div class="am-teams">${esc(m.teamA||'?')} vs ${esc(m.teamB||'?')}</div>
+        <div class="am-teams" style="display:flex;align-items:center;gap:2px">
+          <input class="team-name-inp" type="text" data-mid="${m.id}" data-f="teamA" value="${esc(m.teamA||'')}" placeholder="Équipe A" size="${Math.max(8,(m.teamA||'Équipe A').length+1)}">
+          <span style="font-weight:400;opacity:.5;white-space:nowrap;padding:0 2px">vs</span>
+          <input class="team-name-inp" type="text" data-mid="${m.id}" data-f="teamB" value="${esc(m.teamB||'')}" placeholder="Équipe B" size="${Math.max(8,(m.teamB||'Équipe B').length+1)}">
+        </div>
         <div class="am-meta">${fmtDate(m.date)}${m.time?' · '+m.time:''} · <span style="color:${pc};font-weight:600">${esc(phase)}</span></div>
       </div>
       <span class="mult-badge ${multCls}">×${mult}</span>
@@ -813,6 +821,16 @@ function refreshEVGrid(mid, match) {
 }
 
 // ─── INPUT HANDLERS ──────────────────────────────────────────
+function onTeamNameInp(e) {
+  const { mid, f } = e.target.dataset;
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match) return;
+  match[f] = e.target.value;
+  e.target.size = Math.max(8, (e.target.value || 'Équipe A').length + 1);
+  save();
+  renderPublic();
+}
+
 function onProbInp(e) {
   const { mid, score } = e.target.dataset;
   if (!mid || !score) return;
