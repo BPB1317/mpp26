@@ -183,6 +183,9 @@ select.inp{cursor:pointer}
 .prob-total-badge{padding:3px 10px;border-radius:6px;font-size:.72rem;font-weight:700}
 .ptb-ok{background:#D1FAE5;color:#065F46}.ptb-over{background:#FEE2E2;color:#991B1B}.ptb-under{background:#FEF3C7;color:#92400E}
 .hidden{display:none!important}
+.team-name-inp{border:none;background:transparent;font-weight:700;font-size:.92rem;padding:2px 5px;border-radius:4px;cursor:text;color:inherit;font-family:inherit}
+.team-name-inp:hover{background:rgba(0,0,0,.06)}
+.team-name-inp:focus{outline:2px solid var(--g-light);background:#fff;border-radius:4px}
 .d-flex{display:flex}.ai-c{align-items:center}.gap-2{gap:8px}
 @media(max-width:700px){
   .orow{grid-template-columns:1fr 1fr 1fr;gap:6px}
@@ -802,7 +805,7 @@ function renderAdmin() {
   list.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', e => delMatch(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', e => openEdit(e.currentTarget.dataset.id)));
   list.querySelectorAll('.amcard-hdr').forEach(h => h.addEventListener('click', e => {
-    if (e.target.closest('button')) return;
+    if (e.target.closest('button') || e.target.closest('.team-name-inp')) return;
     h.closest('.amcard').classList.toggle('closed');
   }));
   list.querySelectorAll('.pinp').forEach(inp => inp.addEventListener('input', onMatrixInp));
@@ -813,6 +816,7 @@ function renderAdmin() {
   list.querySelectorAll('.btn-norm-matrix').forEach(b => b.addEventListener('click', e => normalizeMatrix(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-clear-matrix').forEach(b => b.addEventListener('click', e => clearMatrix(e.currentTarget.dataset.id)));
   bindScoreEVControls(list);
+  list.querySelectorAll('.team-name-inp').forEach(inp => inp.addEventListener('change', onTeamNameInp));
   requestAnimationFrame(() => window.scrollTo(0, _sv));
 }
 
@@ -872,7 +876,11 @@ function adminCard(m) {
     <div class="amcard-hdr">
       <span class="collapse-ico">▼</span>
       <div class="am-title">
-        <span class="am-teams">${esc(m.teamA||'?')} vs ${esc(m.teamB||'?')}</span>
+        <span class="am-teams" style="display:flex;align-items:center;gap:2px">
+          <input class="team-name-inp" type="text" data-mid="${m.id}" data-f="teamA" value="${esc(m.teamA||'')}" placeholder="Équipe A" size="${Math.max(8,(m.teamA||'Équipe A').length+1)}">
+          <span style="font-weight:400;opacity:.5;white-space:nowrap;padding:0 2px">vs</span>
+          <input class="team-name-inp" type="text" data-mid="${m.id}" data-f="teamB" value="${esc(m.teamB||'')}" placeholder="Équipe B" size="${Math.max(8,(m.teamB||'Équipe B').length+1)}">
+        </span>
         <span class="phase-tag" style="background:${pc}22;color:${pc}">${esc(m.phase||'')}</span>
         ${m.date?`<span class="am-meta">📅 ${fmtDate(m.date)}${m.time?' '+esc(m.time):''}</span>`:''}
         ${m._fev!==null?`<span class="am-meta">Field EV: ${fmtEV(m._fev)}</span>`:''}
@@ -1343,6 +1351,16 @@ function clearMatrix(mid) {
 }
 
 // ─── INLINE UPDATE ────────────────────────────────────────────
+function onTeamNameInp(e) {
+  const { mid, f } = e.target.dataset;
+  const match = S.data.matches.find(m => m.id === mid);
+  if (!match) return;
+  match[f] = e.target.value;
+  e.target.size = Math.max(8, (e.target.value || 'Équipe A').length + 1);
+  save();
+  renderPublic();
+}
+
 function onInp(e) {
   const {mid, oi, f} = e.target.dataset;
   const match = S.data.matches.find(m => m.id === mid);
