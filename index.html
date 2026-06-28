@@ -945,23 +945,9 @@ function tierLabel(pts) {
 function getOutcomeFairProb(sc, match) {
   const [h, a] = sc.split('-').map(Number);
   const outs = match.outcomes || [];
-  let pOut = null;
-  if (match.type === 'ko') {
-    if (h === a) {
-      const p0 = parseFloat(outs[0]?.fairOdd) > 1 ? 1/parseFloat(outs[0].fairOdd) : 0;
-      const p1 = parseFloat(outs[1]?.fairOdd) > 1 ? 1/parseFloat(outs[1].fairOdd) : 0;
-      pOut = Math.max(0, 1 - p0 - p1);
-    } else {
-      const oc = h > a ? outs[0] : outs[1];
-      const odd = parseFloat(oc?.fairOdd);
-      if (odd > 1) pOut = 1/odd;
-    }
-  } else {
-    const oc = h > a ? outs[0] : h === a ? outs[1] : outs[2];
-    const odd = parseFloat(oc?.fairOdd);
-    if (odd > 1) pOut = 1/odd;
-  }
-  return (pOut !== null && pOut > 0) ? pOut : null;
+  const oc = h > a ? outs[0] : h === a ? outs[1] : outs[2];
+  const odd = parseFloat(oc?.fairOdd);
+  return odd > 1 ? 1/odd : null;
 }
 function computeScoreEVs(match) {
   const probs = match.probs || {};
@@ -974,13 +960,8 @@ function computeScoreEVs(match) {
   // Layer 1 : fraction du field qui a le bon résultat 1X2
   const outPop = (sc) => {
     const [h, a] = sc.split('-').map(Number);
-    if (_totalPop <= 0) return match.type === 'ko' ? 0.5 : 1/3;
+    if (_totalPop <= 0) return 1/3;
     const pops = _outs.map(o => parseFloat(o.popularity)||0);
-    if (match.type === 'ko') {
-      if (h > a) return pops[0] / _totalPop;
-      if (a > h) return (pops[1]||0) / _totalPop;
-      return 0;
-    }
     if (h > a) return pops[0] / _totalPop;
     if (h === a) return (pops[1]||0) / _totalPop;
     return (pops[2]||0) / _totalPop;
@@ -989,11 +970,6 @@ function computeScoreEVs(match) {
   // Points 1X2 associés à la direction du score sc
   const getPts1X2 = (sc) => {
     const [h, a] = sc.split('-').map(Number);
-    if (match.type === 'ko') {
-      if (h > a) return parseFloat(_outs[0]?.points) || 0;
-      if (a > h) return parseFloat(_outs[1]?.points) || 0;
-      return 0;
-    }
     if (h > a) return parseFloat(_outs[0]?.points) || 0;
     if (h === a) return parseFloat(_outs[1]?.points) || 0;
     return parseFloat(_outs[2]?.points) || 0;
@@ -1001,17 +977,12 @@ function computeScoreEVs(match) {
 
   // EV field couche 1X2 = Σ_out [ pop_out × P(out) × pts_1X2_out ]
   let fieldEV_1X2 = 0;
-  {
-    const idxs = match.type === 'ko' ? [0, 1] : [0, 1, 2];
-    for (const i of idxs) {
-      const o = _outs[i];
-      if (!o) continue;
-      const pop = _totalPop > 0 ? (parseFloat(o.popularity)||0) / _totalPop
-                                 : (match.type === 'ko' ? 0.5 : 1/3);
-      const odd = parseFloat(o.fairOdd);
-      const pts = parseFloat(o.points) || 0;
-      if (odd > 1 && pts > 0) fieldEV_1X2 += pop * (1/odd) * pts;
-    }
+  for (const o of _outs) {
+    if (!o) continue;
+    const pop = _totalPop > 0 ? (parseFloat(o.popularity)||0) / _totalPop : 1/3;
+    const odd = parseFloat(o.fairOdd);
+    const pts = parseFloat(o.points) || 0;
+    if (odd > 1 && pts > 0) fieldEV_1X2 += pop * (1/odd) * pts;
   }
 
   // Construction de la evMap
@@ -1019,8 +990,8 @@ function computeScoreEVs(match) {
   for (const sc of ALL_SCORES_IDX) {
     const pRaw = parseFloat(probs[sc]||0);
     if (!pRaw) continue;
-    const pS      = pRaw / tot;
-    const pOut    = getOutcomeFairProb(sc, match);
+    const pS   = pRaw / tot;
+    const pOut = getOutcomeFairProb(sc, match);
     if (!pOut) continue;
     const auto    = tieredPts((pS * scoreBias(sc)) / pOut);
     const ov      = overrides[sc];
@@ -1355,9 +1326,15 @@ function onTeamNameInp(e) {
   const { mid, f } = e.target.dataset;
   const match = S.data.matches.find(m => m.id === mid);
   if (!match) return;
+  const oldName = match[f] || 'TBD';
   match[f] = e.target.value;
   e.target.size = Math.max(8, (e.target.value || 'Équipe A').length + 1);
+  // Met à jour le label de l'outcome correspondant si auto-généré
+  const outIdx = f === 'teamA' ? 0 : 2;
+  const out = match.outcomes?.[outIdx];
+  if (out && out.label === `Victoire ${oldName}`) out.label = `Victoire ${match[f]}`;
   save();
+  renderAdmin();
   renderPublic();
 }
 
@@ -1438,13 +1415,11 @@ function saveMatch() {
   if (!tA||!tB) { toast('Les noms des équipes sont requis','err'); return; }
 
   const type = document.getElementById('m-type').value;
-  const isKO = type === 'ko';
 
   if (id) {
     const idx = S.data.matches.findIndex(m => m.id === id);
     if (idx<0) return;
     const ex = S.data.matches[idx];
-    const prevKO = ex.type === 'ko';
     S.data.matches[idx] = {
       ...ex, teamA:tA, teamB:tB,
       date:document.getElementById('m-date').value,
@@ -1452,24 +1427,11 @@ function saveMatch() {
       phase:document.getElementById('m-phase').value,
       type
     };
-    // Sync outcomes count if type changed
-    if (isKO && !prevKO && ex.outcomes.length === 3) {
-      S.data.matches[idx].outcomes = [ex.outcomes[0], ex.outcomes[2]];
-    } else if (!isKO && prevKO && ex.outcomes.length === 2) {
-      S.data.matches[idx].outcomes = [
-        ex.outcomes[0],
-        {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
-        ex.outcomes[1]
-      ];
-    }
     toast('Match modifié','ok');
   } else {
-    const outs = isKO
-      ? [{id:uid(),label:`Victoire ${tA}`,points:'',fairOdd:'',popularity:''},
-         {id:uid(),label:`Victoire ${tB}`,points:'',fairOdd:'',popularity:''}]
-      : [{id:uid(),label:`Victoire ${tA}`,points:'',fairOdd:'',popularity:''},
-         {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
-         {id:uid(),label:`Victoire ${tB}`,points:'',fairOdd:'',popularity:''}];
+    const outs = [{id:uid(),label:`Victoire ${tA}`,points:'',fairOdd:'',popularity:''},
+                  {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
+                  {id:uid(),label:`Victoire ${tB}`,points:'',fairOdd:'',popularity:''}];
     S.data.matches.push({
       id:uid(), teamA:tA, teamB:tB,
       date:document.getElementById('m-date').value,
@@ -1675,13 +1637,9 @@ function loadCalendar() {
     : `Charger le calendrier officiel CDM 2026 (${PC.length} matchs) ?`;
   if (!confirm(msg)) return;
   S.data.matches = PC.map(m => {
-    const isKO = m.type === 'ko';
-    const outs = isKO
-      ? [{id:uid(),label:`Victoire ${m.tA}`,points:'',fairOdd:'',popularity:''},
-         {id:uid(),label:`Victoire ${m.tB}`,points:'',fairOdd:'',popularity:''}]
-      : [{id:uid(),label:`Victoire ${m.tA}`,points:'',fairOdd:'',popularity:''},
-         {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
-         {id:uid(),label:`Victoire ${m.tB}`,points:'',fairOdd:'',popularity:''}];
+    const outs = [{id:uid(),label:`Victoire ${m.tA}`,points:'',fairOdd:'',popularity:''},
+                  {id:uid(),label:'Match nul',points:'',fairOdd:'',popularity:''},
+                  {id:uid(),label:`Victoire ${m.tB}`,points:'',fairOdd:'',popularity:''}];
     return {id:uid(),teamA:m.tA,teamB:m.tB,date:m.date,time:m.time,phase:m.phase,type:m.type,outcomes:outs,probs:{}};
   });
   save(); renderAdmin(); renderPublic();
