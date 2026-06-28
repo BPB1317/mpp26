@@ -339,7 +339,7 @@ select.inp{cursor:pointer}
           <label class="flbl">Type de match</label>
           <select class="inp" id="m-type">
             <option value="group">Phase de groupe (1 / N / 2)</option>
-            <option value="ko">Élimination directe (1 / 2)</option>
+            <option value="ko">Élimination directe (1 / N / 2)</option>
           </select>
         </div>
       </div>
@@ -1757,6 +1757,21 @@ function openSyncModal() {
   show('ov-sync');
 }
 
+// ─── MIGRATION ───────────────────────────────────────────────
+function migrateData(data) {
+  // Ajoute "Match nul" aux matchs KO qui n'ont que 2 outcomes (ancien format)
+  (data.matches || []).forEach(m => {
+    if (m.type === 'ko' && Array.isArray(m.outcomes) && m.outcomes.length === 2) {
+      m.outcomes = [
+        m.outcomes[0],
+        { id: uid(), label: 'Match nul', points: '', fairOdd: '', popularity: '' },
+        m.outcomes[1]
+      ];
+    }
+  });
+  return data;
+}
+
 // ─── INIT ────────────────────────────────────────────────────
 (async () => {
   const h = location.hash;
@@ -1765,7 +1780,7 @@ function openSyncModal() {
     const tbl = document.getElementById('public-table');
     if (tbl) tbl.innerHTML = '<div class="empty"><div class="empty-ico" style="font-size:2rem">⏳</div><h3>Chargement…</h3><p>Récupération des données en cours.</p></div>';
     try {
-      S.data = await loadFromBin(binId);
+      S.data = migrateData(await loadFromBin(binId));
       const conf = loadConf();
       if (!conf.binId) { conf.binId = binId; saveConf(conf); }
     } catch(e) {
@@ -1773,7 +1788,7 @@ function openSyncModal() {
       toast('Impossible de charger les données cloud','err');
     }
   } else {
-    S.data = loadData();
+    S.data = migrateData(loadData());
   }
   setup();
   renderPublic();
