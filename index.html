@@ -1458,7 +1458,7 @@ function tryLogin() {
   const pwd = document.getElementById('pwd-input').value;
   if (pwd === S.data.adminPassword) {
     // Switch to admin localStorage data
-    S.data = loadAdminData();
+    S.data = migrateData(loadAdminData());
     S.isAdmin = true;
     hide('ov-login');
     switchView('admin');
@@ -1789,6 +1789,7 @@ function migrateData(data) {
     }
   } else {
     S.data = migrateData(loadData());
+    try { localStorage.setItem(SK, JSON.stringify(S.data)); } catch(e) {}
   }
   setup();
   renderPublic();
