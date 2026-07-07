@@ -557,20 +557,29 @@ function renderPublic() {
     const mult = getMult(phase);
     const multCls = `mx${mult}`;
 
-    // EV of best bet
-    const bestEV = best ? betEV(best.bet, probs, phase) : null;
-    const evBadge = bestEV !== null
-      ? `<span class="badge-ev ${bestEV>=2?'pos':bestEV>=0?'neu':'neg'}">${fmtEV(bestEV)} pts</span>`
+    // Override or auto best
+    const displayBet = (m.pickscore && m.pickscore.trim()) ? m.pickscore.trim() : best?.bet;
+    const displayEV = displayBet ? betEV(displayBet, probs, phase) : null;
+    const evBadge = displayEV !== null
+      ? `<span class="badge-ev ${displayEV>=2?'pos':displayEV>=0?'neu':'neg'}">${fmtEV(displayEV)} pts</span>`
       : '<span style="color:var(--muted)">—</span>';
 
     // Top bets for detail
     const topBets = ALL_SCORES.map(bet => {
       const ev = betEV(bet, probs, phase);
       const p = betPAny(bet, probs, phase);
-      return { bet, ev, p };
+      const js = betJackpot(bet, probs, phase);
+      return { bet, ev, p, js };
     }).filter(x => x.ev !== null && x.ev > 0)
       .sort((a,b) => b.ev - a.ev)
       .slice(0, 12);
+    // Ensure custom pick appears in dropdown if not already listed
+    if (displayBet && displayBet !== best?.bet && !topBets.find(b => b.bet === displayBet)) {
+      const ev = betEV(displayBet, probs, phase);
+      const p = betPAny(displayBet, probs, phase);
+      const js = betJackpot(displayBet, probs, phase);
+      if (ev !== null) topBets.unshift({ bet: displayBet, ev, p, js });
+    }
 
     const detailRows = topBets.map((b, i) => {
       const [bh, ba] = b.bet.split('-').map(Number);
@@ -581,18 +590,23 @@ function renderPublic() {
         : isHome
         ? `<span style="color:var(--ok);font-size:.68rem">${esc(m.teamA)}</span>`
         : `<span style="color:var(--bad);font-size:.68rem">${esc(m.teamB)}</span>`;
-      const isBest = best && b.bet === best.bet;
-      return `<tr class="${isBest?'det-best':''}">
-        <td style="padding:5px 12px;font-weight:${i===0?700:400}">${i===0?'⭐ ':''}<code style="font-size:.82rem">${b.bet}</code></td>
+      const isShown = displayBet && b.bet === displayBet;
+      const isBestEV = best && b.bet === best.bet;
+      const icon = isShown && !isBestEV ? '📌 ' : isBestEV ? '⭐ ' : '';
+      const rowCls = isShown && !isBestEV ? '' : isBestEV ? 'det-best' : '';
+      const rowStyle = isShown && !isBestEV ? 'style="background:#FFF7ED"' : '';
+      return `<tr class="${rowCls}" ${rowStyle}>
+        <td style="padding:5px 12px;font-weight:${isBestEV||isShown?700:400}">${icon}<code style="font-size:.82rem">${b.bet}</code></td>
         <td style="padding:5px 12px">${tag}</td>
         <td style="padding:5px 12px;font-weight:700;color:#4338CA">${fmtEV(b.ev)}</td>
         <td style="padding:5px 12px;color:var(--muted)">${fmtPct(b.p)}</td>
+        <td style="padding:5px 12px;color:var(--muted)">${fmtEV(b.js)}</td>
       </tr>`;
     }).join('');
 
     return `<tr class="main-row" onclick="toggleDetail('${m.id}')">
       <td><div class="minfo-teams">${esc(m.teamA)} vs ${esc(m.teamB)}</div><div class="minfo-meta">${fmtDate(m.date)}${m.time?' · '+esc(m.time):''} · <span style="color:${pc};font-weight:600;font-size:.7rem">${esc(phase)}</span> <span class="mult-badge ${multCls}" style="padding:1px 5px;font-size:.62rem">×${mult}</span></div></td>
-      <td>${best ? `<code style="font-weight:700;font-size:.88rem">${best.bet}</code>` : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${displayBet ? `<code style="font-weight:700;font-size:.88rem">${esc(displayBet)}</code>` : '<span style="color:var(--muted)">—</span>'}</td>
       <td class="col-ev">${evBadge}</td>
       <td style="text-align:center;font-size:.75rem;user-select:none;color:var(--muted);width:28px" id="tog-${m.id}">▼</td>
     </tr>
@@ -604,6 +618,7 @@ function renderPublic() {
             <th style="padding:6px 12px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase">Résultat</th>
             <th style="padding:6px 12px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase">EV</th>
             <th style="padding:6px 12px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase">P(points)</th>
+            <th style="padding:6px 12px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase">P(jackpot)</th>
           </tr></thead>
           <tbody>${detailRows}</tbody>
         </table>
@@ -645,6 +660,13 @@ function renderAdmin() {
   list.querySelectorAll('.btn-paste-apply').forEach(b => b.addEventListener('click', e => applyPasteMatrix(e.currentTarget.dataset.id)));
   list.querySelectorAll('.btn-paste-cancel').forEach(b => b.addEventListener('click', e => { const a=document.getElementById('paste-area-'+e.currentTarget.dataset.id); if(a) a.style.display='none'; }));
   list.querySelectorAll('.team-name-inp').forEach(inp => inp.addEventListener('change', onTeamNameInp));
+  list.querySelectorAll('.btn-clear-pick').forEach(b => b.addEventListener('click', e => {
+    const mid = e.currentTarget.dataset.id;
+    const match = S.data.matches.find(m => m.id === mid);
+    if (!match) return;
+    match.pickscore = '';
+    save(); renderAdmin(); renderPublic();
+  }));
 }
 
 function adminCard(m) {
@@ -656,6 +678,7 @@ function adminCard(m) {
   const tot = probTotal(probs);
   const totCls = Math.abs(tot-100)<2 ? 'ptb-ok' : tot>100 ? 'ptb-over' : 'ptb-under';
   const totTxt = tot > 0 ? tot.toFixed(1)+'%' : '0%';
+  const autoBet = bestBet(probs, phase, 2)?.bet || '—';
 
   // Build the 9×9 grid (rows=home, cols=away, disabled where h+a>8)
   let gridRows = `<tr><td class="gh"></td>${Array.from({length:9},(_,a)=>`<td class="gh">&minus;${a}</td>`).join('')}</tr>`;
@@ -760,9 +783,11 @@ function adminCard(m) {
       </div>
 
       <div class="pick-section">
-        <label>Score conseillé à afficher :</label>
-        <input class="inp pick-inp" type="text" data-mid="${m.id}" value="${esc(m.pickscore||'')}" placeholder="Ex: 1-0 ou 2-1…">
-        <span style="font-size:.72rem;color:var(--muted)">(affiché à ton amie)</span>
+        <label>Prono conseillé :</label>
+        <span style="font-size:.78rem;background:#F0FDF4;border:1px solid #6EE7B7;padding:2px 9px;border-radius:6px;font-family:monospace;font-weight:700;color:#065F46">🤖 ${esc(autoBet)}</span>
+        <span style="font-size:.72rem;color:var(--muted)">· override :</span>
+        <input class="inp pick-inp" type="text" data-mid="${m.id}" value="${esc(m.pickscore||'')}" placeholder="vide = auto" style="width:80px">
+        <button class="btn btn-sm btn-ghost btn-clear-pick" data-id="${m.id}" title="Reset → auto">✕</button>
         <button class="btn btn-outline btn-sm btn-copy-matrix" data-id="${m.id}" title="Copier les probabilités vers index.html">📋 Copier matrice</button>
         <button class="btn btn-ok btn-sm btn-paste-matrix" data-id="${m.id}">📤 Coller matrice</button>
       </div>
@@ -825,9 +850,14 @@ function onTeamNameInp(e) {
   const { mid, f } = e.target.dataset;
   const match = S.data.matches.find(m => m.id === mid);
   if (!match) return;
+  const oldName = match[f] || 'TBD';
   match[f] = e.target.value;
   e.target.size = Math.max(8, (e.target.value || 'Équipe A').length + 1);
+  const outIdx = f === 'teamA' ? 0 : 2;
+  const out = match.outcomes?.[outIdx];
+  if (out && out.label === `Victoire ${oldName}`) out.label = `Victoire ${match[f]}`;
   save();
+  renderAdmin();
   renderPublic();
 }
 
