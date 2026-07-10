@@ -179,7 +179,7 @@ a{color:var(--g)}
     <div class="scoring-legend">
       <div class="sl-item"><span class="sl-pts" style="background:#D1FAE5;color:#065F46">5 pts ×mult</span> Score exact (victoire)</div>
       <div class="sl-item"><span class="sl-pts" style="background:#DBEAFE;color:#1D4ED8">7 pts ×mult</span> Score exact (nul)</div>
-      <div class="sl-item"><span class="sl-pts" style="background:#FEF3C7;color:#92400E">3 pts ×mult</span> Bon vainqueur + bonne différence</div>
+      <div class="sl-item"><span class="sl-pts" style="background:#FEF3C7;color:#92400E">3 pts ×mult</span> Bon vainqueur + bonne différence &middot; ou nul prédit sur résultat nul (score diff.)</div>
       <div class="sl-item"><span class="sl-pts" style="background:#F3F4F6;color:#374151">1 pt ×mult</span> Bon vainqueur (victoire correcte, diff. incorrecte)</div>
       <div class="sl-item" style="color:var(--muted)">mult : ×1 groupes · ×2 16e/8e · ×3 QF · ×4 ½F+3e · ×5 Finale</div>
     </div>
@@ -450,6 +450,7 @@ function scorePoints(bet, result, phase) {
   const [bh, ba] = bet.split('-').map(Number);
   const [rh, ra] = result.split('-').map(Number);
   if (bh === rh && ba === ra) return (bh === ba ? 7 : 5) * mult;
+  if (bh === ba && rh === ra) return 3 * mult; // bon nul, score différent
   if (bh !== ba && rh !== ra) {
     const bd = bh - ba, rd = rh - ra;
     if (Math.sign(bd) === Math.sign(rd) && bd === rd) return 3 * mult;
