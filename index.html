@@ -1644,7 +1644,7 @@ function mcDir(sc) {
 }
 
 function runMonteCarlo() {
-  const N = 10000;
+  const N = 100000;
   const rl = S.riskLevel || 2;
   const enrichedMatches = S.data.matches.map(enrich);
 
@@ -1705,6 +1705,8 @@ function runMonteCarlo() {
         if (drawnI === sd.best) pts += sd.bestPts;
       }
     }
+    if (Math.random() < 0.20) pts += 80;   // Espagne vainqueur
+    if (Math.random() < 0.07) pts += 150;  // Meilleur buteur
     results.push(pts);
   }
 
@@ -1770,6 +1772,23 @@ function renderMCChart(sorted, nMatches) {
     ${xLabels}
   </svg>`;
 
+  const pAbove = (thr) => { let lo = 0, hi = N; while (lo < hi) { const mid = (lo+hi)>>1; if (sorted[mid] <= thr) lo = mid+1; else hi = mid; } return (N-lo)/N; };
+  const sidePanel = [
+    { label:'Top 50', score:5700, msg:'Finir dans le top 50' },
+    { label:'Top 10', score:5865, msg:'Finir dans le top 10' },
+    { label:'Top 1',  score:6150, msg:'Remporter le MPP 🏆' },
+  ].map(t => {
+    const pct = pAbove(t.score) * 100;
+    const clr = pct >= 5 ? '#065F46' : pct >= 1 ? '#92400E' : '#991B1B';
+    const bg  = pct >= 5 ? '#D1FAE5' : pct >= 1 ? '#FEF3C7' : '#FEE2E2';
+    const pStr = pct < 0.05 ? '&lt;0.1%' : pct.toFixed(pct < 1 ? 2 : 1) + '%';
+    return '<div style="background:' + bg + ';border-radius:8px;padding:10px 12px;text-align:center">'
+      + '<div style="font-size:.68rem;font-weight:700;color:' + clr + ';text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">' + t.label + '</div>'
+      + '<div style="font-size:1.4rem;font-weight:800;color:' + clr + ';line-height:1.1">' + pStr + '</div>'
+      + '<div style="font-size:.63rem;color:' + clr + ';margin-top:3px;opacity:.75">&gt;&nbsp;' + t.score.toLocaleString('fr-FR') + '&nbsp;pts</div>'
+      + '<div style="font-size:.64rem;color:' + clr + ';margin-top:5px;font-style:italic;opacity:.85">' + t.msg + '</div>'
+      + '</div>';
+  }).join('');
   document.getElementById('mc-content').innerHTML = `
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:.82rem;align-items:center">
       <span style="color:var(--muted)">📊 <b style="color:var(--text)">${nMatches}</b> matchs simulés</span>
@@ -1779,13 +1798,19 @@ function renderMCChart(sorted, nMatches) {
       <span style="color:#6C757D">P90 : ${p90.toFixed(0)}</span>
       <button class="btn btn-ghost btn-sm" onclick="runMonteCarlo()" style="margin-left:auto;font-size:.72rem;padding:3px 10px">↻ Relancer</button>
     </div>
-    <div style="position:relative" onmousemove="mcMov(event)" onmouseleave="mcHovOut()">${svg}
-      <div id="mc-tip" style="position:absolute;display:none;background:rgba(33,37,41,.93);color:#fff;padding:9px 13px;border-radius:8px;font-size:.78rem;pointer-events:none;white-space:nowrap;z-index:99;line-height:1.65"></div>
+    <div style="display:flex;gap:14px;align-items:stretch">
+      <div style="flex:1;min-width:0;position:relative" onmousemove="mcMov(event)" onmouseleave="mcHovOut()">${svg}
+        <div id="mc-tip" style="position:absolute;display:none;background:rgba(33,37,41,.93);color:#fff;padding:9px 13px;border-radius:8px;font-size:.78rem;pointer-events:none;white-space:nowrap;z-index:99;line-height:1.65"></div>
+      </div>
+      <div style="width:155px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;justify-content:center">${sidePanel}</div>
     </div>
     <div style="font-size:.73rem;color:var(--muted);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
       <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;border-top:1.5px dashed #D4AC0D;display:inline-block"></span>Moyenne</span>
       <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;border-top:1.5px dashed #6366F1;display:inline-block"></span>Médiane</span>
-      <span style="margin-left:auto">10 000 simulations · ${nMatches} matchs avec cotes</span>
+      <span style="margin-left:auto">100 000 simulations · ${nMatches} matchs avec cotes</span>
+    </div>
+    <div style="font-size:.72rem;color:var(--muted);margin-top:5px;padding:6px 10px;background:#F8F9FA;border-radius:6px;border-left:3px solid var(--gold)">
+      🎯 Bonus inclus : <b>+80 pts</b> Espagne vainqueur <span style="color:#9CA3AF">(p = 20%)</span> &nbsp;·&nbsp; <b>+150 pts</b> Meilleur buteur <span style="color:#9CA3AF">(p = 7%)</span> &nbsp;·&nbsp; EV bonus ≈ <b>+${(0.20*80 + 0.07*150).toFixed(0)} pts</b>
     </div>`;
   document.getElementById('mc-card').style.display = '';
 }
@@ -1800,7 +1825,7 @@ function mcMov(e) {
   const n    = el.getAttribute('data-n');
   const plt  = el.getAttribute('data-plt');
   const pgt  = el.getAttribute('data-pgt');
-  tip.innerHTML = `<b>${from} – ${to} pts</b><br>${n} sim. sur 10 000 (${(n / 100).toFixed(1)}%)<br>P(&lt; ${from} pts) = <b>${plt}%</b><br>P(&gt; ${to} pts) = <b>${pgt}%</b>`;
+  tip.innerHTML = `<b>${from} – ${to} pts</b><br>${n} sim. sur 100 000 (${(n / 1000).toFixed(1)}%)<br>P(&lt; ${from} pts) = <b>${plt}%</b><br>P(&gt; ${to} pts) = <b>${pgt}%</b>`;
   const wrap = tip.parentElement;
   const wr = wrap.getBoundingClientRect();
   let lx = e.clientX - wr.left + 14;
