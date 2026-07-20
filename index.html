@@ -237,6 +237,11 @@ select.inp{cursor:pointer}
       <div class="tcard-head">📋 Tableau des recommandations</div>
       <div id="public-table"></div>
     </div>
+
+    <div class="tcard" id="mc-card" style="display:none;margin-top:16px">
+      <div class="tcard-head">🎲 Monte Carlo — Distribution des points attendus (10 000 simulations)</div>
+      <div id="mc-content" style="padding:18px 20px"></div>
+    </div>
   </div>
 
   <!-- ===== ADMIN VIEW ===== -->
@@ -632,6 +637,8 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 // ─── RENDER PUBLIC ────────────────────────────────────────────
 function renderPublic() {
+  const mcCard = document.getElementById('mc-card');
+  if (mcCard) mcCard.style.display = 'none';
   const matches = S.data.matches.map(enrich).sort((a,b)=>((a.date||'9999')+'T'+(a.time||'99:99')).localeCompare((b.date||'9999')+'T'+(b.time||'99:99')));
 
   // Top picks strip
@@ -777,6 +784,7 @@ function renderPublic() {
     <thead><tr><th>Match</th><th>Score conseillé</th><th>Niveau</th><th>Pronostic recommandé</th><th class="col-ev">EV vs field</th><th class="col-ev">EV absolue</th><th style="width:28px"></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+  runMonteCarlo();
 }
 
 function toggleScoreboard(mid) {
@@ -1627,6 +1635,186 @@ function setup() {
       if (S.isAdmin) logout(); else document.getElementById('btn-admin-toggle').click();
     }
   });
+}
+
+// ─── MONTE CARLO ─────────────────────────────────────────────
+function mcDir(sc) {
+  const [h, a] = sc.split('-').map(Number);
+  return h > a ? 1 : h === a ? 0 : -1;
+}
+
+function runMonteCarlo() {
+  const N = 10000;
+  const rl = S.riskLevel || 2;
+  const enrichedMatches = S.data.matches.map(enrich);
+
+  const simData = [];
+  for (const m of enrichedMatches) {
+    const ml = (S.matchRiskLevels && S.matchRiskLevels[m.id]) || rl;
+    const hasMatrix = m.probs && mProbTotal(m.probs) > 0;
+    if (hasMatrix) {
+      const pick = bestScorePick(m, ml);
+      if (!pick) continue;
+      const tot = mProbTotal(m.probs);
+      const scores = [], cumul = [];
+      let c = 0;
+      for (const sc of ALL_SCORES_IDX) {
+        const p = parseFloat(m.probs[sc] || 0);
+        if (!p) continue;
+        c += p; scores.push(sc); cumul.push(c);
+      }
+      if (!scores.length) continue;
+      const outs = m.outcomes || [];
+      const pd = mcDir(pick.score);
+      const p1x2 = parseFloat((pd === 1 ? outs[0] : pd === 0 ? outs[1] : outs[2])?.points) || 0;
+      simData.push({ type: 'matrix', scores, cumul, tot, pick: pick.score, pickDir: pd, p1x2, tierPts: pick.pts });
+    } else {
+      if (m._best < 0) continue;
+      const outs = m.outcomes || [];
+      const bestPts = parseFloat(outs[m._best]?.points) || 0;
+      if (!bestPts) continue;
+      const valid = outs.map((o, i) => ({ i, p: parseFloat(o.fairOdd) > 1 ? 1 / parseFloat(o.fairOdd) : 0 })).filter(o => o.p > 0);
+      if (!valid.length) continue;
+      const tot = valid.reduce((s, o) => s + o.p, 0);
+      let c = 0;
+      const cumul = valid.map(o => { c += o.p; return { i: o.i, c }; });
+      simData.push({ type: '1x2', cumul, tot, best: m._best, bestPts });
+    }
+  }
+
+  const mcCard = document.getElementById('mc-card');
+  if (!simData.length) { if (mcCard) mcCard.style.display = 'none'; return; }
+
+  const results = [];
+  for (let i = 0; i < N; i++) {
+    let pts = 0;
+    for (const sd of simData) {
+      const r = Math.random() * sd.tot;
+      if (sd.type === 'matrix') {
+        let drawn = sd.scores[sd.scores.length - 1];
+        for (let j = 0; j < sd.cumul.length; j++) {
+          if (r < sd.cumul[j]) { drawn = sd.scores[j]; break; }
+        }
+        if (mcDir(drawn) === sd.pickDir) {
+          pts += sd.p1x2;
+          if (drawn === sd.pick) pts += sd.tierPts;
+        }
+      } else {
+        let drawnI = sd.cumul[sd.cumul.length - 1].i;
+        for (const cp of sd.cumul) { if (r < cp.c) { drawnI = cp.i; break; } }
+        if (drawnI === sd.best) pts += sd.bestPts;
+      }
+    }
+    results.push(pts);
+  }
+
+  results.sort((a, b) => a - b);
+  renderMCChart(results, simData.length);
+}
+
+function renderMCChart(sorted, nMatches) {
+  const N = sorted.length;
+  if (!N) return;
+  const minV = sorted[0], maxV = sorted[N - 1];
+  const mean = sorted.reduce((s, v) => s + v, 0) / N;
+  const median = (sorted[Math.floor(N / 2)] + sorted[Math.floor((N - 1) / 2)]) / 2;
+  const p10 = sorted[Math.floor(N * 0.10)];
+  const p90 = sorted[Math.floor(N * 0.90)];
+
+  const nB = 50;
+  const range = (maxV - minV) || 1;
+  const bw = range / nB;
+  const buckets = Array.from({ length: nB }, (_, i) => ({
+    f: minV + i * bw, t: minV + (i + 1) * bw, n: 0, pLt: 0, pGt: 0
+  }));
+  for (const v of sorted) buckets[Math.min(Math.floor((v - minV) / bw), nB - 1)].n++;
+  let run = 0;
+  for (const b of buckets) { b.pLt = run / N; run += b.n; b.pGt = (N - run) / N; }
+
+  const maxN = Math.max(...buckets.map(b => b.n));
+  const W = 680, H = 200, PL = 10, PR = 10, PT = 28, PB = 32;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const bW = cw / nB;
+  const scX = v => PL + (v - minV) / range * cw;
+  const meanX = scX(mean), medX = scX(median);
+
+  const grid = [0.25, 0.5, 0.75, 1].map(f => {
+    const y = (PT + ch - f * ch).toFixed(1);
+    return `<line x1="${PL}" y1="${y}" x2="${PL + cw}" y2="${y}" stroke="#F3F4F6" stroke-width="1"/>`;
+  }).join('');
+
+  const bars = buckets.map((b, i) => {
+    if (!b.n) return '';
+    const bh = (b.n / maxN) * ch;
+    return `<rect x="${(PL + i * bW).toFixed(1)}" y="${(PT + ch - bh).toFixed(1)}"
+      width="${(bW - 0.5).toFixed(1)}" height="${bh.toFixed(1)}"
+      fill="var(--g)" rx="1" opacity=".85"
+      data-f="${b.f.toFixed(0)}" data-t="${b.t.toFixed(0)}" data-n="${b.n}"
+      data-plt="${(b.pLt * 100).toFixed(1)}" data-pgt="${(b.pGt * 100).toFixed(1)}"/>`;
+  }).join('');
+
+  const xLabels = Array.from({ length: 7 }, (_, i) => {
+    const v = minV + range * i / 6;
+    return `<text x="${scX(v).toFixed(1)}" y="${(H - 8).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9CA3AF">${v.toFixed(0)}</text>`;
+  }).join('');
+
+  const mxOf = Math.abs(meanX - medX) < 40 ? 10 : 0;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">
+    ${grid}${bars}
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT + ch}" stroke="#DEE2E6"/>
+    <line x1="${PL}" y1="${PT + ch}" x2="${PL + cw}" y2="${PT + ch}" stroke="#DEE2E6"/>
+    <line x1="${meanX.toFixed(1)}" y1="${PT}" x2="${meanX.toFixed(1)}" y2="${PT + ch}" stroke="#D4AC0D" stroke-width="1.5" stroke-dasharray="5,3"/>
+    <text x="${meanX.toFixed(1)}" y="${(PT - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#D4AC0D" font-weight="700">μ ${mean.toFixed(0)}</text>
+    <line x1="${medX.toFixed(1)}" y1="${PT}" x2="${medX.toFixed(1)}" y2="${PT + ch}" stroke="#6366F1" stroke-width="1.5" stroke-dasharray="5,3"/>
+    <text x="${medX.toFixed(1)}" y="${(PT - 8 + mxOf).toFixed(1)}" text-anchor="middle" font-size="9" fill="#6366F1" font-weight="700">m ${median.toFixed(0)}</text>
+    ${xLabels}
+  </svg>`;
+
+  document.getElementById('mc-content').innerHTML = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:.82rem;align-items:center">
+      <span style="color:var(--muted)">📊 <b style="color:var(--text)">${nMatches}</b> matchs simulés</span>
+      <span>Moy : <b>${mean.toFixed(0)} pts</b></span>
+      <span>Méd : <b>${median.toFixed(0)} pts</b></span>
+      <span style="color:#6C757D">P10 : ${p10.toFixed(0)}</span>
+      <span style="color:#6C757D">P90 : ${p90.toFixed(0)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="runMonteCarlo()" style="margin-left:auto;font-size:.72rem;padding:3px 10px">↻ Relancer</button>
+    </div>
+    <div style="position:relative" onmousemove="mcMov(event)" onmouseleave="mcHovOut()">${svg}
+      <div id="mc-tip" style="position:absolute;display:none;background:rgba(33,37,41,.93);color:#fff;padding:9px 13px;border-radius:8px;font-size:.78rem;pointer-events:none;white-space:nowrap;z-index:99;line-height:1.65"></div>
+    </div>
+    <div style="font-size:.73rem;color:var(--muted);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;border-top:1.5px dashed #D4AC0D;display:inline-block"></span>Moyenne</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;border-top:1.5px dashed #6366F1;display:inline-block"></span>Médiane</span>
+      <span style="margin-left:auto">10 000 simulations · ${nMatches} matchs avec cotes</span>
+    </div>`;
+  document.getElementById('mc-card').style.display = '';
+}
+
+function mcMov(e) {
+  const el = e.target;
+  if (el.tagName !== 'rect' || !el.getAttribute('data-n')) { mcHovOut(); return; }
+  const tip = document.getElementById('mc-tip');
+  if (!tip) return;
+  const from = el.getAttribute('data-f');
+  const to   = el.getAttribute('data-t');
+  const n    = el.getAttribute('data-n');
+  const plt  = el.getAttribute('data-plt');
+  const pgt  = el.getAttribute('data-pgt');
+  tip.innerHTML = `<b>${from} – ${to} pts</b><br>${n} sim. sur 10 000 (${(n / 100).toFixed(1)}%)<br>P(&lt; ${from} pts) = <b>${plt}%</b><br>P(&gt; ${to} pts) = <b>${pgt}%</b>`;
+  const wrap = tip.parentElement;
+  const wr = wrap.getBoundingClientRect();
+  let lx = e.clientX - wr.left + 14;
+  let ty = e.clientY - wr.top - 110;
+  if (lx + 210 > wrap.offsetWidth) lx = e.clientX - wr.left - 224;
+  if (ty < 4) ty = e.clientY - wr.top + 14;
+  tip.style.left = lx + 'px';
+  tip.style.top  = ty + 'px';
+  tip.style.display = '';
+}
+
+function mcHovOut() {
+  const tip = document.getElementById('mc-tip');
+  if (tip) tip.style.display = 'none';
 }
 
 // ─── LOAD CALENDAR ───────────────────────────────────────────
